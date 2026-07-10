@@ -6,6 +6,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY telegram_bot.py .
+COPY aiohttp_request.py .
 
 ENV PYTHONUNBUFFERED=1
 

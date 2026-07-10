@@ -25,6 +25,7 @@ for _key in (
 from telegram import Update  # noqa: E402
 from telegram.ext import Application, CommandHandler, ContextTypes  # noqa: E402
 from telegram.request import HTTPXRequest  # noqa: E402
+from aiohttp_request import AiohttpRequest  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -397,8 +398,18 @@ def main() -> None:
         raise SystemExit("Задайте TELEGRAM_BOT_TOKEN в .env или окружении.")
     if not API_KEY:
         raise SystemExit("Задайте HEALTHOS_API_KEY в .env или окружении.")
-    tg_request = HTTPXRequest(httpx_kwargs={"trust_env": False})
-    app = Application.builder().token(TOKEN).request(tg_request).build()
+    # In sandbox, httpx TLS handshake hangs with anyio backend.
+    # PTB uses TWO request objects: one for getUpdates (polling) and one for all other calls.
+    # Both must be replaced with the aiohttp adapter.
+    tg_request = AiohttpRequest()
+    tg_updates_request = AiohttpRequest()
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .request(tg_request)
+        .get_updates_request(tg_updates_request)
+        .build()
+    )
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("water", cmd_water))
