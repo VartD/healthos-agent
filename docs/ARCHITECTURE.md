@@ -91,7 +91,12 @@ flowchart TD
 - **Persistent Volume**: Используется в `docker-compose.yml` (`pgdata:/var/lib/postgresql/data`).
 
 ## Инфраструктура и Деплой
-- **Docker Compose**: Есть файл `docker-compose.yml`, который описывает `postgres` и `backend`. Бот туда не включен. Запуск через Docker не проверялся локально из-за ограничений песочницы.
+- **Docker Compose**: описывает `postgres`, `backend` и `bot`; backend автоматически
+  применяет Alembic migration, а bot ждёт readiness backend.
+- **Health checks**: `/health/live` и `/health/ready`.
+- **CI**: GitHub Actions поднимает PostgreSQL 16, применяет миграции и запускает тесты.
+- **Backup/restore**: shell-команды на основе `pg_dump`/`pg_restore`.
 - **Tor/Cloudflare**: Инфраструктурные скрипты отсутствуют.
-- **CI/CD**: Отсутствует.
-- **Мониторинг/логи**: Только стандартный `logging` в stdout.
+- **Мониторинг/логи**: JSON request logs в stdout; внешнего error tracking и uptime
+  monitoring пока нет.
+- **Статус проверки**: Docker runtime, PostgreSQL CI и backup drill ещё не выполнены.

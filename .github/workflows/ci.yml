@@ -1,0 +1,47 @@
+name: HealthOS CI
+
+on:
+  push:
+    branches: [main, manus-handoff-2026-07-10]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: healthos
+          POSTGRES_PASSWORD: healthos_ci_password
+          POSTGRES_DB: healthos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U healthos -d healthos_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg2://healthos:healthos_ci_password@127.0.0.1:5432/healthos_test
+      TEST_DATABASE_URL: postgresql+psycopg2://healthos:healthos_ci_password@127.0.0.1:5432/healthos_test
+      HEALTHOS_API_KEY: ci-healthos-api-key-with-at-least-32-characters
+      HEALTHOS_TIMEZONE: Asia/Yekaterinburg
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Apply migrations
+        working-directory: backend
+        run: alembic upgrade head
+      - name: Run tests against PostgreSQL
+        run: pytest

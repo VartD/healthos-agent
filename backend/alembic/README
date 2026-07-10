@@ -1,0 +1,6 @@
+Database schema changes are managed by Alembic.
+
+From the backend directory:
+
+    alembic upgrade head
+    alembic current

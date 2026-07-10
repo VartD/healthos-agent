@@ -4,19 +4,20 @@
 надёжность, безопасность, ежедневное использование и пользовательский результат.
 
 ## Технический долг и временные решения
-- **Отсутствие миграций БД (P1)**: Используется `Base.metadata.create_all`. Необходимо внедрить Alembic.
+- **Миграции БД — выполнено локально**: добавлены Alembic и initial schema migration.
 - **Синхронный API (P2)**: текущие sync-маршруты FastAPI выполняются в thread pool и
   для малой нагрузки приемлемы. Переход на async нужен только после измерения нагрузки.
 - **Telegram Bot (P1)**: требуется интеграционный тест polling → backend → DB и
   единая обработка ошибок API.
 - **Hardcoded правила (P2)**: Все медицинские пороги (глюкоза > 7, мочевая кислота > 360) зашиты прямо в код (`state_engine.py`).
-- **Покрытие тестами (P1)**: базовые 13 тестов добавлены; ещё нужны bot integration,
+- **Покрытие тестами (P1)**: базовые 15 тестов добавлены; ещё нужны bot integration,
   PostgreSQL, Docker Compose и backup/restore тесты.
 - **Пользовательская авторизация (P0)**: сервисный API-key реализован, но для внешнего
   Mini App необходимы пользовательские сессии и проверка ownership.
-- **Миграции БД (P1)**: внедрить Alembic до изменения схемы.
 - **Наблюдаемость (P0)**: structured logs, health/readiness checks, error tracking,
-  uptime alerting.
+  uptime alerting. JSON logs и health checks выполнены; error tracking/alerts остаются.
+- **Docker/PostgreSQL acceptance (P0)**: запустить Compose, проверить CI, выполнить
+  backup/restore drill и Telegram polling E2E.
 
 ## Запланировано, но не начато (Блокеры для полноценного продукта)
 - **Сценарий сна (P0)**: утренний чекин, вечерняя рекомендация, недельный эксперимент.
@@ -29,8 +30,8 @@
 
 ## Что Codex должен сделать первым
 1. **P0 foundation — выполнено локально**: API-key, обязательный `user_id`, валидация,
-   исправление latest-value/unit/safety bugs, 13 тестов.
-2. **Эксплуатационный контур**: PostgreSQL integration test, Docker, миграции,
-   логирование, мониторинг, backup/restore.
+   исправление latest-value/unit/safety bugs, 15 тестов.
+2. **Эксплуатационный контур — подготовлен локально**: migration, Docker, CI,
+   logging, health checks и backup scripts. Осталась фактическая приёмка среды.
 3. **Первый продуктовый сценарий**: сон + лекарства/добавки + одна Next Best Action.
 4. **Только затем AI**: один оркестратор с evidence и safety, а не 14 независимых ролей.

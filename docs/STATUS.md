@@ -1,7 +1,7 @@
 # Реальный статус функций HealthOS
 
 Статусы основаны на проверке кода, smoke-check и автоматизированных тестах с SQLite.
-После P0-этапа Codex выполняются 13 тестов. Docker/PostgreSQL и Telegram polling
+После эксплуатационного этапа Codex выполняются 15 тестов. Docker/PostgreSQL и Telegram polling
 пока не проверены сквозным тестом.
 
 ## P0 foundation, добавленный Codex
@@ -14,7 +14,21 @@
 - единицы воды больше не теряются перед risk engine;
 - критический symptom disclaimer ограничен последними 24 часами;
 - часовой пояс вынесен в `HEALTHOS_TIMEZONE`;
-- добавлено 13 автоматизированных тестов.
+- добавлено 15 автоматизированных тестов;
+- добавлены Alembic, CI, health checks, JSON request logs и backup/restore scripts;
+- Docker Compose расширен до PostgreSQL + backend + bot.
+
+## Эксплуатационный статус
+
+| Компонент | Статус | Доказательство |
+|---|---|---|
+| Alembic migration | Проверено на SQLite | `upgrade → downgrade → upgrade` |
+| API/safety tests | Проверено | 15/15 проходят |
+| YAML и shell syntax | Проверено | Docker/CI YAML parse, `sh -n` |
+| PostgreSQL CI | Подготовлено | Запустится после публикации ветки |
+| Docker Compose runtime | Не проверено | Docker отсутствует в текущей среде |
+| Backup/restore drill | Не проверено | Требуется работающий PostgreSQL container |
+| Telegram polling E2E | Не проверено | Нужен тестовый bot token и доступ к Telegram API |
 
 | Функция | Статус | Комментарий |
 |---------|--------|-------------|

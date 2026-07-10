@@ -1,7 +1,51 @@
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.db import Base, get_db
+from app.main import app
+
+
 def test_health_endpoint_is_public(client):
     response = client.get("/")
     assert response.status_code == 200
     assert response.json() == {"status": "HealthOS running"}
+
+
+def test_liveness_and_readiness_are_public(client):
+    live = client.get("/health/live")
+    ready = client.get("/health/ready")
+    assert live.status_code == 200
+    assert live.json() == {"status": "ok"}
+    assert live.headers["X-Request-ID"]
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "ready"}
+
+
+def test_readiness_rejects_database_without_migration_head(client):
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+
+    def unversioned_db():
+        db = Session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = unversioned_db
+    response = client.get("/health/ready")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "database unavailable"}
+    engine.dispose()
 
 
 def test_health_data_endpoints_require_api_key(client):
@@ -165,5 +209,3 @@ def test_old_severe_symptom_does_not_trigger_permanent_alert(client, auth_header
     )
     assert response.status_code == 200
     assert response.json()["disclaimer"] is None
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo

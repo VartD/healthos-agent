@@ -30,3 +30,7 @@
 4. **Тестовая БД**: Добавлено правило в `.gitignore` для исключения локальных баз SQLite (`*.db`).
 5. **AI safety**: детерминированные red flags сохраняются. LLM в будущем используется
    для оркестрации и объяснения, но не заменяет safety rules.
+6. **Schema lifecycle**: production-схема изменяется только Alembic-миграциями;
+   автоматический `create_all` при запуске удалён.
+7. **Operational boundary**: сервисы слушают только localhost host-порты в Compose;
+   внешний доступ должен идти через отдельный TLS reverse proxy.
