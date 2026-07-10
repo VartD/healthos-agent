@@ -33,7 +33,8 @@ Codex. Docker Compose статически проверен, но фактиче
    alembic upgrade head
    uvicorn app.main:app --host 127.0.0.1 --port 8000
    ```
-   API будет доступно по адресу `http://127.0.0.1:8000/docs`. База данных создастся автоматически при первом запуске.
+   API будет доступно по адресу `http://127.0.0.1:8000/docs`. Схему создаёт
+   выполненная перед запуском Alembic-миграция.
 
 4. **Запуск Telegram-бота**
    В новом терминале:
@@ -54,7 +55,7 @@ Codex. Docker Compose статически проверен, но фактиче
 
 2. **Запуск**
    ```bash
-   docker-compose up --build -d
+   docker compose up --build -d
    ```
    Это поднимает PostgreSQL, применяет Alembic-миграции, запускает backend и после
    успешного readiness check запускает Telegram-бота.
@@ -74,7 +75,7 @@ Codex. Docker Compose статически проверен, но фактиче
 pytest
 ```
 
-На этапах Codex P0–P1 реализовано 15 тестов API, авторизации, фильтрации пользователей,
+На этапах Codex P0–P2 реализован 21 тест API, авторизации, фильтрации пользователей,
 валидации и safety-логики. Telegram polling и Docker Compose пока требуют отдельной
 интеграционной проверки.
 
@@ -103,8 +104,20 @@ Docker-среде до первого пилота.
 
 ## Проверенный и непроверенный контур
 
-- Проверено: Python compilation, 15 тестов, SQLite API, Alembic на SQLite, синтаксис
+- Проверено: Python compilation, 21 тест, SQLite API, Alembic на SQLite, синтаксис
   YAML и shell-скриптов.
 - Будет проверено после публикации: GitHub Actions с PostgreSQL.
 - Не проверено фактическим запуском: Docker Compose, Telegram polling,
   PostgreSQL backup/restore.
+
+## Telegram-сценарий «Сон»
+
+```text
+/profile 8 Asia/Yekaterinburg
+/morning 7.5 4 1 3 комментарий
+/sleepweek
+```
+
+Параметры `/morning`: часы сна, качество 1–5, число пробуждений, энергия 1–5,
+необязательный комментарий. Повторный чекин за ту же локальную дату обновляет
+существующую запись.

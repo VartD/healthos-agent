@@ -14,7 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.routes import events
+from app.routes import events, sleep
 
 
 class JsonFormatter(logging.Formatter):
@@ -111,3 +111,4 @@ def ready(db: Session = Depends(get_db)) -> dict[str, str]:
 
 
 app.include_router(events.router)
+app.include_router(sleep.router)
