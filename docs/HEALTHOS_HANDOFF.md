@@ -57,7 +57,8 @@ health checks, JSON logs и backup/restore scripts. PostgreSQL/Docker/bot E2E е
 
 Telegram handlers проверены через настоящий backend и тестовую БД с имитацией
 внешнего Telegram transport. Real smoke подготовлен, но `TELEGRAM_BOT_TOKEN`
-в текущей среде отсутствует.
+в локальной среде Codex отсутствовал. После развёртывания Manus реальный бот
+успешно выполнил `/profile`, `/morning`, `/sleepweek` и `/status`.
 
 ## 9. Безопасность
 Codex закрыл API сервисным ключом и добавил базовую валидацию. Полноценная

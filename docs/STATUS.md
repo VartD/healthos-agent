@@ -1,8 +1,9 @@
 # Реальный статус функций HealthOS
 
 Статусы основаны на проверке кода, smoke-check и автоматизированных тестах с SQLite.
-После Telegram integration-этапа выполняются 23 теста. Docker/PostgreSQL и
-реальный Telegram polling пока не проверены.
+После Telegram integration-этапа выполняются 23 теста. Реальный Telegram polling
+и прикладной E2E подтверждены 10 июля 2026 года. Docker runtime и backup/restore
+пока не подтверждены логами.
 
 ## P0 foundation, добавленный Codex
 
@@ -30,7 +31,8 @@
 | Docker Compose runtime | Не проверено | Docker отсутствует в текущей среде |
 | Backup/restore drill | Не проверено | Требуется работающий PostgreSQL container |
 | Telegram handlers → backend → DB | Проверено | Имитация Telegram transport, настоящий backend |
-| Telegram Bot API / polling | Не проверено | В среде отсутствует `TELEGRAM_BOT_TOKEN` |
+| Telegram Bot API / polling | Проверено | Реальный существующий бот ответил на команды |
+| Telegram → backend → DB → ответ | Проверено | `/profile`, `/morning`, `/sleepweek`, `/status` |
 
 ## Продуктовый модуль «Сон»
 

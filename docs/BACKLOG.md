@@ -7,17 +7,17 @@
 - **Миграции БД — выполнено локально**: добавлены Alembic и initial schema migration.
 - **Синхронный API (P2)**: текущие sync-маршруты FastAPI выполняются в thread pool и
   для малой нагрузки приемлемы. Переход на async нужен только после измерения нагрузки.
-- **Telegram Bot (P1)**: handlers → backend → DB проверены с имитацией внешнего
-  Telegram transport. Остались реальный Bot API/polling и единая обработка ошибок.
+- **Telegram Bot (P1)**: handlers → backend → DB проверены автоматически и в
+  реальном Telegram. Осталась единая обработка ошибок и долгосрочная наблюдаемость.
 - **Hardcoded правила (P2)**: Все медицинские пороги (глюкоза > 7, мочевая кислота > 360) зашиты прямо в код (`state_engine.py`).
-- **Покрытие тестами (P1)**: 23 теста добавлены; ещё нужны реальный Telegram API,
-  PostgreSQL, Docker Compose и backup/restore.
+- **Покрытие тестами (P1)**: 23 теста добавлены; реальный Telegram E2E подтверждён.
+  Ещё нужны PostgreSQL CI, Docker Compose и backup/restore.
 - **Пользовательская авторизация (P0)**: сервисный API-key реализован, но для внешнего
   Mini App необходимы пользовательские сессии и проверка ownership.
 - **Наблюдаемость (P0)**: structured logs, health/readiness checks, error tracking,
   uptime alerting. JSON logs и health checks выполнены; error tracking/alerts остаются.
 - **Docker/PostgreSQL acceptance (P0)**: запустить Compose, проверить CI, выполнить
-  backup/restore drill и Telegram polling E2E.
+  backup/restore drill; Telegram polling E2E выполнен.
 
 ## Запланировано, но не начато (Блокеры для полноценного продукта)
 - **Сценарий сна (P0)**: профиль, утренний чекин, недельная сводка и одна NBA
