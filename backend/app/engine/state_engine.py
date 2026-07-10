@@ -6,18 +6,20 @@ from zoneinfo import ZoneInfo
 
 from app.models import EventType
 from app.schemas import Mode
+from app.config import settings
 
 
 @dataclass(frozen=True)
 class EventView:
     event_type: EventType
     value: float | None
+    unit: str | None
     note: str | None
     timestamp: datetime
     metadata: dict | None
 
 
-TZ = ZoneInfo("Europe/Moscow")
+TZ = ZoneInfo(settings.healthos_timezone)
 
 
 def _local_date(ts: datetime) -> date:
@@ -31,13 +33,13 @@ def _today_events(events: list[EventView], today: date) -> list[EventView]:
 
 
 def _latest_glucose_today(events: list[EventView], today: date) -> float | None:
-    glucose = [e.value for e in _today_events(events, today) if e.event_type == EventType.glucose and e.value is not None]
-    return max(glucose) if glucose else None
+    glucose = [e for e in _today_events(events, today) if e.event_type == EventType.glucose and e.value is not None]
+    return float(max(glucose, key=lambda e: e.timestamp).value) if glucose else None
 
 
 def _latest_uric_today(events: list[EventView], today: date) -> float | None:
-    vals = [e.value for e in _today_events(events, today) if e.event_type == EventType.uric_acid and e.value is not None]
-    return max(vals) if vals else None
+    values = [e for e in _today_events(events, today) if e.event_type == EventType.uric_acid and e.value is not None]
+    return float(max(values, key=lambda e: e.timestamp).value) if values else None
 
 
 def _sleep_hours_last_night(events: list[EventView], today: date) -> float | None:

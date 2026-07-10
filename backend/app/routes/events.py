@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Security
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -8,8 +8,9 @@ from app.db import get_db
 from app.models import HealthEvent
 from app.schemas import AnalysisResponse, EventCreate, EventRead
 from app.analysis import analyze_user
+from app.security import require_api_key
 
-router = APIRouter(tags=["events"])
+router = APIRouter(tags=["events"], dependencies=[Security(require_api_key)])
 
 
 @router.post("/events", response_model=EventRead)
@@ -32,13 +33,11 @@ def post_event(payload: EventCreate, db: Session = Depends(get_db)) -> HealthEve
 
 @router.get("/events", response_model=list[EventRead])
 def list_events(
-    user_id: str | None = Query(default=None),
+    user_id: str = Query(..., min_length=1, max_length=128),
     limit: int = Query(default=50, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> list[HealthEvent]:
-    stmt = select(HealthEvent)
-    if user_id is not None:
-        stmt = stmt.where(HealthEvent.user_id == user_id)
+    stmt = select(HealthEvent).where(HealthEvent.user_id == user_id)
     stmt = stmt.order_by(HealthEvent.timestamp.desc()).limit(limit)
     return list(db.scalars(stmt).all())
 

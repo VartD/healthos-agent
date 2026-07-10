@@ -1,6 +1,6 @@
 # Инструкция по воспроизведению (Runbook)
 
-Проект можно запустить локально без Docker (используя SQLite) или с помощью Docker Compose (PostgreSQL). Оба способа проверены в чистом окружении.
+Проект можно запустить локально без Docker (используя SQLite) или с помощью Docker Compose (PostgreSQL). Локальный вариант и автоматизированные тесты проверены Codex. Docker Compose описан в коде, но в текущей среде не проверялся.
 
 ## Вариант 1: Быстрый запуск с SQLite (Проверено)
 
@@ -12,13 +12,14 @@
    cd healthos-agent
    pip install -r backend/requirements.txt
    pip install -r bot/requirements.txt
-   pip install pysqlite3  # Если требуется для вашей версии Python
    ```
 
 2. **Настройка окружения**
    Создайте файл `.env` в корне проекта:
    ```env
    TELEGRAM_BOT_TOKEN=ваш_токен
+   HEALTHOS_API_KEY=случайная_строка_минимум_32_символа
+   HEALTHOS_TIMEZONE=Asia/Yekaterinburg
    BACKEND_URL=http://127.0.0.1:8000
    DATABASE_URL=sqlite:///./healthos.db
    ```
@@ -55,5 +56,14 @@
    python telegram_bot.py
    ```
 
-## Тестирование
-В проекте отсутствуют unit, integration и E2E тесты. Для проверки работоспособности необходимо вручную отправлять команды боту (например, `/water 500`) и проверять ответ.
+## Автоматизированное тестирование
+
+Из корня репозитория:
+
+```bash
+pytest
+```
+
+На этапе Codex P0 реализовано 13 тестов API, авторизации, фильтрации пользователей,
+валидации и safety-логики. Telegram polling и Docker Compose пока требуют отдельной
+интеграционной проверки.

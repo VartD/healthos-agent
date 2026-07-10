@@ -29,22 +29,34 @@ from telegram.request import HTTPXRequest  # noqa: E402
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8001").rstrip("/")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+API_KEY = os.getenv("HEALTHOS_API_KEY", "")
 logger.info("BACKEND_URL=%s", BACKEND_URL)
 
 # Запросы к своему backend не должны ходить через корпоративный proxy из env
 _HTTPX_BACKEND = {"trust_env": False}
 
 
+def _api_headers() -> dict[str, str]:
+    return {"X-API-Key": API_KEY}
+
+
 async def _post_event(client: httpx.AsyncClient, payload: dict[str, Any]) -> dict[str, Any]:
-    r = await client.post(f"{BACKEND_URL}/events", json=payload, timeout=30.0)
+    r = await client.post(
+        f"{BACKEND_URL}/events", json=payload, headers=_api_headers(), timeout=30.0
+    )
     r.raise_for_status()
     return r.json()
 
 
 async def _analyze(client: httpx.AsyncClient, user_id: str) -> dict[str, Any]:
-    r = await client.get(f"{BACKEND_URL}/analyze", params={"user_id": user_id}, timeout=30.0)
+    r = await client.get(
+        f"{BACKEND_URL}/analyze",
+        params={"user_id": user_id},
+        headers=_api_headers(),
+        timeout=30.0,
+    )
     r.raise_for_status()
     return r.json()
 
@@ -115,6 +127,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             r = await client.get(
                 f"{BACKEND_URL}/analyze",
                 params={"user_id": str(user_id)},
+                headers=_api_headers(),
                 timeout=30.0,
             )
             r.raise_for_status()
@@ -234,6 +247,8 @@ async def cmd_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 def main() -> None:
     if not TOKEN:
         raise SystemExit("Задайте TELEGRAM_BOT_TOKEN в .env или окружении.")
+    if not API_KEY:
+        raise SystemExit("Задайте HEALTHOS_API_KEY в .env или окружении.")
     tg_request = HTTPXRequest(httpx_kwargs={"trust_env": False})
     app = Application.builder().token(TOKEN).request(tg_request).build()
     app.add_handler(CommandHandler("start", cmd_start))

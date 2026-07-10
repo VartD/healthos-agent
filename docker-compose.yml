@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: healthos
-      POSTGRES_PASSWORD: healthos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: healthos
     ports:
       - "5432:5432"
@@ -22,7 +22,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+psycopg2://healthos:healthos@postgres:5432/healthos
+      DATABASE_URL: postgresql+psycopg2://healthos:${POSTGRES_PASSWORD}@postgres:5432/healthos
+      HEALTHOS_API_KEY: ${HEALTHOS_API_KEY:?Set HEALTHOS_API_KEY in .env}
+      HEALTHOS_TIMEZONE: ${HEALTHOS_TIMEZONE:-Asia/Yekaterinburg}
     depends_on:
       postgres:
         condition: service_healthy

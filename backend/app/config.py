@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,11 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "postgresql+psycopg2://healthos:healthos@localhost:5432/healthos"
+    healthos_api_key: SecretStr = Field(
+        min_length=32,
+        description="Shared service credential used by trusted HealthOS clients.",
+    )
+    healthos_timezone: str = "Asia/Yekaterinburg"
 
 
 settings = Settings()
