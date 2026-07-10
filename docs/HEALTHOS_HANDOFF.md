@@ -34,16 +34,20 @@
 В коде нет ни одного AI-агента. Логика реализована через детерминированные if/else правила. Подробнее в [STATUS.md](STATUS.md).
 
 ## 5. База данных
-Используется PostgreSQL (или SQLite для локальных тестов) с единственной таблицей `health_events`. Миграций нет. Схема описана в [ARCHITECTURE.md](ARCHITECTURE.md).
+Используется PostgreSQL или SQLite для тестов. После этапов Codex есть три таблицы:
+`health_events`, `user_profiles`, `sleep_checkins`. Схема управляется двумя
+Alembic-миграциями и описана в [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## 6. Инфраструктура и деплой
-Присутствует `docker-compose.yml` для локального запуска БД и backend (запуск через Docker не проверялся локально из-за ограничений песочницы). Скриптов деплоя, CI/CD и конфигурации Cloudflare/Tor в репозитории нет.
+Docker Compose описывает PostgreSQL, backend и bot. Добавлены migrations startup,
+health checks, GitHub Actions, JSON logs и backup/restore scripts. Docker runtime
+не проверен, поскольку Docker в текущей среде отсутствует. Cloudflare/Tor отсутствуют.
 
 ## 7. Воспроизведение проекта
 Инструкция по локальному запуску с использованием SQLite описана в [RUNBOOK.md](RUNBOOK.md).
 
 ## 8. Тестирование
-В исходной передаче тестов не было. Codex добавил 21 автоматизированный тест API,
+В исходной передаче тестов не было. Codex добавил 23 автоматизированных теста API,
 авторизации, валидации и safety-логики. Добавлены Alembic, Docker Compose, CI,
 health checks, JSON logs и backup/restore scripts. PostgreSQL/Docker/bot E2E ещё
 не выполнены в реальной среде.
@@ -51,13 +55,18 @@ health checks, JSON logs и backup/restore scripts. PostgreSQL/Docker/bot E2E е
 Добавлен первый продуктовый контур: профиль, утренний sleep check-in, история,
 недельная сводка и одна детерминированная Next Best Action.
 
+Telegram handlers проверены через настоящий backend и тестовую БД с имитацией
+внешнего Telegram transport. Real smoke подготовлен, но `TELEGRAM_BOT_TOKEN`
+в текущей среде отсутствует.
+
 ## 9. Безопасность
 Codex закрыл API сервисным ключом и добавил базовую валидацию. Полноценная
 пользовательская авторизация и ownership ещё не реализованы. Подробности в
 [DECISIONS.md](DECISIONS.md).
 
 ## 10. Незавершённые задачи (Backlog)
-Описаны в [BACKLOG.md](BACKLOG.md). Первоочередная задача — рефакторинг на асинхронный код, добавление авторизации и внедрение реальных LLM-агентов.
+Описаны в [BACKLOG.md](BACKLOG.md). Следующие задачи: реальная Telegram/Docker
+приёмка, reminders, вечерний чекин, лекарства/добавки и только затем LLM.
 
 ## 11. Переданные артефакты
 Все документы находятся в папке `docs/` в ветке `manus-handoff-2026-07-10`.

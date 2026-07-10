@@ -75,9 +75,10 @@ Codex. Docker Compose статически проверен, но фактиче
 pytest
 ```
 
-На этапах Codex P0–P2 реализован 21 тест API, авторизации, фильтрации пользователей,
-валидации и safety-логики. Telegram polling и Docker Compose пока требуют отдельной
-интеграционной проверки.
+На этапах Codex P0–P3 реализовано 23 теста API, авторизации, фильтрации,
+валидации, safety и Telegram handlers. Bot integration-тест использует настоящий
+FastAPI/DB-контур и имитирует только внешний Telegram transport. Реальный Telegram
+API и Docker Compose требуют отдельной проверки.
 
 ## Миграции
 
@@ -104,7 +105,7 @@ Docker-среде до первого пилота.
 
 ## Проверенный и непроверенный контур
 
-- Проверено: Python compilation, 21 тест, SQLite API, Alembic на SQLite, синтаксис
+- Проверено: Python compilation, 23 теста, SQLite API, Alembic на SQLite, синтаксис
   YAML и shell-скриптов.
 - Будет проверено после публикации: GitHub Actions с PostgreSQL.
 - Не проверено фактическим запуском: Docker Compose, Telegram polling,
@@ -121,3 +122,23 @@ Docker-среде до первого пилота.
 Параметры `/morning`: часы сна, качество 1–5, число пробуждений, энергия 1–5,
 необязательный комментарий. Повторный чекин за ту же локальную дату обновляет
 существующую запись.
+
+## Реальный smoke-тест Telegram
+
+После запуска backend и заполнения `.env`:
+
+```bash
+python scripts/smoke_real_services.py
+```
+
+Без изменения данных скрипт проверяет backend live/readiness, защищённый API,
+Telegram `getMe` и отсутствие webhook для polling-режима.
+
+Для явной отправки одного тестового сообщения задайте `TELEGRAM_SMOKE_CHAT_ID` и
+выполните:
+
+```bash
+python scripts/smoke_real_services.py --send-message
+```
+
+Скрипт никогда не выводит токен или API-key.
