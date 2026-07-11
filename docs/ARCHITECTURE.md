@@ -35,15 +35,15 @@
    - Sleep check-in связан с одним `health_event`, поэтому повторный ввод за дату
      обновляет запись и не создаёт дубли.
 
-### Стек и точные версии
-- **Python**: 3.11 (в Dockerfile) / 3.12.3 (локально)
-- **FastAPI**: 0.136.1
-- **Uvicorn**: 0.47.0
+### Стек и зафиксированные версии
+- **Python**: 3.11 (в Dockerfile); финальная локальная проверка выполнена на 3.12
+- **FastAPI**: 0.139.0
+- **Uvicorn**: 0.51.0
 - **SQLAlchemy**: 2.0.51
 - **Pydantic**: 2.13.4
 - **psycopg2-binary**: 2.9.12
-- **python-telegram-bot**: >=21.0,<23.0
-- **aiohttp**: >=3.9.0,<4.0 для Telegram Bot API transport
+- **python-telegram-bot**: 22.8
+- **aiohttp**: 3.14.1 для Telegram Bot API transport
 - **Docker**: `postgres:16-alpine`, `python:3.11-slim`
 
 ### Точки входа
