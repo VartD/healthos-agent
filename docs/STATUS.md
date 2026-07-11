@@ -1,9 +1,9 @@
 # Реальный статус функций HealthOS
 
-Статусы основаны на проверке кода, smoke-check и автоматизированных тестах с SQLite.
-После Telegram integration-этапа выполняются 23 теста. Реальный Telegram polling
-и прикладной E2E подтверждены 10 июля 2026 года. Docker runtime и backup/restore
-пока не подтверждены логами.
+Статусы основаны на проверке кода, 26 автоматизированных тестах и приёмке
+развёрнутого контура 10 июля 2026 года. Реальный Telegram polling, PostgreSQL,
+перезапуск Compose с сохранением volume и восстановление backup подтверждены.
+Доказательства и границы проверки описаны в `STAGE4_RELEASE_ACCEPTANCE.md`.
 
 ## P0 foundation, добавленный Codex
 
@@ -16,7 +16,7 @@
 - критический symptom disclaimer ограничен последними 24 часами;
 - часовой пояс вынесен в `HEALTHOS_TIMEZONE`;
 - добавлен структурированный модуль сна, профиль и 3 Telegram-команды;
-- добавлены 23 автоматизированных теста;
+- добавлены 26 автоматизированных тестов;
 - добавлены Alembic, CI, health checks, JSON request logs и backup/restore scripts;
 - Docker Compose расширен до PostgreSQL + backend + bot.
 
@@ -24,15 +24,20 @@
 
 | Компонент | Статус | Доказательство |
 |---|---|---|
-| Alembic migration | Проверено на SQLite | `upgrade → downgrade → upgrade` |
-| API/safety/bot tests | Проверено | 23/23 проходят |
+| Alembic migration | Проверено | SQLite lifecycle и PostgreSQL revision `20260710_0002` |
+| API/safety/bot tests | Проверено | 26/26 проходят на текущей ветке |
 | YAML и shell syntax | Проверено | Docker/CI YAML parse, `sh -n` |
 | PostgreSQL CI | Подготовлено | Запустится после публикации ветки |
-| Docker Compose runtime | Не проверено | Docker отсутствует в текущей среде |
-| Backup/restore drill | Не проверено | Требуется работающий PostgreSQL container |
+| Docker Compose runtime | Проверено на deployment host | PostgreSQL/backend/bot healthy после полного restart |
+| Persistence | Проверено | `1/7`, `7.5 ч`, качество `4`, энергия `3` сохранились |
+| Backup/restore drill | Проверено отдельно от production | Backup восстановлен во временную PostgreSQL-среду |
 | Telegram handlers → backend → DB | Проверено | Имитация Telegram transport, настоящий backend |
 | Telegram Bot API / polling | Проверено | Реальный существующий бот ответил на команды |
 | Telegram → backend → DB → ответ | Проверено | `/profile`, `/morning`, `/sleepweek`, `/status` |
+
+Текущий HEAD содержит дополнительное закрытие bind-адресов при
+`network_mode: host`; его необходимо развернуть поверх проверенного RC и повторить
+короткий smoke перед merge.
 
 ## Продуктовый модуль «Сон»
 

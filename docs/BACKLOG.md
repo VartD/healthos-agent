@@ -10,14 +10,18 @@
 - **Telegram Bot (P1)**: handlers → backend → DB проверены автоматически и в
   реальном Telegram. Осталась единая обработка ошибок и долгосрочная наблюдаемость.
 - **Hardcoded правила (P2)**: Все медицинские пороги (глюкоза > 7, мочевая кислота > 360) зашиты прямо в код (`state_engine.py`).
-- **Покрытие тестами (P1)**: 23 теста добавлены; реальный Telegram E2E подтверждён.
-  Ещё нужны PostgreSQL CI, Docker Compose и backup/restore.
+- **Покрытие тестами (P1)**: 26 тестов добавлены; реальный Telegram E2E,
+  Docker Compose, persistence и restore drill подтверждены. Остался первый
+  GitHub Actions run с PostgreSQL после публикации ветки.
 - **Пользовательская авторизация (P0)**: сервисный API-key реализован, но для внешнего
   Mini App необходимы пользовательские сессии и проверка ownership.
 - **Наблюдаемость (P0)**: structured logs, health/readiness checks, error tracking,
   uptime alerting. JSON logs и health checks выполнены; error tracking/alerts остаются.
-- **Docker/PostgreSQL acceptance (P0)**: запустить Compose, проверить CI, выполнить
-  backup/restore drill; Telegram polling E2E выполнен.
+- **Host networking (P1)**: текущая среда Manus требует `network_mode: host`.
+  PostgreSQL и backend принудительно слушают `127.0.0.1`; позже нужно вернуть
+  переносимую bridge-сеть или выделить отдельный Compose override.
+- **Release publication (P0)**: опубликовать ветку, получить зелёный GitHub Actions
+  run и развернуть финальный security hardening поверх проверенного RC.
 
 ## Запланировано, но не начато (Блокеры для полноценного продукта)
 - **Сценарий сна (P0)**: профиль, утренний чекин, недельная сводка и одна NBA
@@ -32,8 +36,8 @@
 ## Что Codex должен сделать первым
 1. **P0 foundation — выполнено локально**: API-key, обязательный `user_id`, валидация,
    исправление latest-value/unit/safety bugs, 15 тестов на этом этапе.
-2. **Эксплуатационный контур — подготовлен локально**: migration, Docker, CI,
-   logging, health checks и backup scripts. Осталась фактическая приёмка среды.
+2. **Эксплуатационный контур — принят на deployment host**: migrations, Docker,
+   health checks, persistence и restore drill. Остались публикация и GitHub CI.
 3. **Первый продуктовый сценарий — частично выполнен**: сон и одна Next Best Action
    реализованы; далее reminders, вечерний чекин и лекарства/добавки.
 4. **Только затем AI**: один оркестратор с evidence и safety, а не 14 независимых ролей.

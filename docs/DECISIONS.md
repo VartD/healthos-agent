@@ -32,7 +32,8 @@
    для оркестрации и объяснения, но не заменяет safety rules.
 6. **Schema lifecycle**: production-схема изменяется только Alembic-миграциями;
    автоматический `create_all` при запуске удалён.
-7. **Operational boundary**: сервисы слушают только localhost host-порты в Compose;
-   внешний доступ должен идти через отдельный TLS reverse proxy.
+7. **Operational boundary**: среда Manus использует Linux `network_mode: host`, но
+   PostgreSQL и backend принудительно слушают только `127.0.0.1`. Внешний доступ
+   должен идти через отдельный TLS reverse proxy.
 8. **Sleep NBA**: первая Next Best Action выбирается прозрачными правилами на основе
    полноты данных и персональной цели. LLM не участвует, диагнозы и терапия исключены.

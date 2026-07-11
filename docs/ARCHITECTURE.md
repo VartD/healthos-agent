@@ -42,12 +42,14 @@
 - **SQLAlchemy**: 2.0.51
 - **Pydantic**: 2.13.4
 - **psycopg2-binary**: 2.9.12
-- **python-telegram-bot**: >=21.0
+- **python-telegram-bot**: >=21.0,<23.0
+- **aiohttp**: >=3.9.0,<4.0 для Telegram Bot API transport
 - **Docker**: `postgres:16-alpine`, `python:3.11-slim`
 
 ### Точки входа
 - **Bot**: `python telegram_bot.py`
-- **Backend**: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+- **Backend**: Docker default `0.0.0.0`; текущий host-network Compose задаёт
+  `BACKEND_BIND_HOST=127.0.0.1`
 
 ### Чего НЕТ в коде (хотя заявлено)
 - **Aiogram**: Отсутствует.
@@ -59,8 +61,9 @@
 - **Cloudflare Tunnel / Tor**: В коде есть только удаление proxy-переменных окружения для бота (`os.environ.pop`), самого туннеля в репозитории нет.
 - **Digital Twin / Longevity Intelligence**: Отсутствует.
 - **Vision-анализ (Apple Watch)**: Отсутствует (нет загрузки фото).
-- **15 API endpoints**: Отсутствуют (реализовано только 3).
-- **9 ORM-моделей**: Отсутствуют; после этапа Codex реализовано 3 модели.
+- **Заявленные 15 прикладных endpoints**: не найдены; реализовано 8 защищённых
+  прикладных операций плюс health endpoints.
+- **Заявленные 9 ORM-моделей**: не найдены; реализовано 3 модели.
 
 ## Модуль сна
 
@@ -93,8 +96,8 @@ flowchart TD
 
 ## База Данных
 
-- **ORM-модели**: `HealthEvent`
-- **Схема**:
+- **ORM-модели**: `HealthEvent`, `UserProfile`, `SleepCheckin`.
+- **Базовая схема `HealthEvent`**:
   - `id`: Integer, PK
   - `user_id`: String(128), Index
   - `timestamp`: DateTime(timezone=True)
@@ -103,16 +106,19 @@ flowchart TD
   - `unit`: String(64), nullable
   - `note`: Text, nullable
   - `event_metadata`: JSON, nullable
-- **Миграции**: Отсутствуют (Alembic не используется, таблицы создаются через `Base.metadata.create_all`).
+- **Миграции**: Alembic `20260710_0001` и `20260710_0002`.
 - **Persistent Volume**: Используется в `docker-compose.yml` (`pgdata:/var/lib/postgresql/data`).
 
 ## Инфраструктура и Деплой
 - **Docker Compose**: описывает `postgres`, `backend` и `bot`; backend автоматически
   применяет Alembic migration, а bot ждёт readiness backend.
+- **Сеть deployment host**: Linux host networking как workaround среды; PostgreSQL
+  и backend слушают только `127.0.0.1`.
 - **Health checks**: `/health/live` и `/health/ready`.
 - **CI**: GitHub Actions поднимает PostgreSQL 16, применяет миграции и запускает тесты.
 - **Backup/restore**: shell-команды на основе `pg_dump`/`pg_restore`.
 - **Tor/Cloudflare**: Инфраструктурные скрипты отсутствуют.
 - **Мониторинг/логи**: JSON request logs в stdout; внешнего error tracking и uptime
   monitoring пока нет.
-- **Статус проверки**: Docker runtime, PostgreSQL CI и backup drill ещё не выполнены.
+- **Статус проверки**: Docker runtime, PostgreSQL persistence и backup/restore drill
+  выполнены; первый PostgreSQL GitHub CI run ожидает публикации ветки.
