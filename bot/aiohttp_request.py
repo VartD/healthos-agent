@@ -1,38 +1,31 @@
-"""Custom PTB request adapter using aiohttp instead of httpx.
-
-In the Manus sandbox, httpx's TLS handshake hangs when connecting to
-api.telegram.org, while aiohttp works fine. This module provides a
-drop-in replacement for HTTPXRequest.
-"""
+"""Custom python-telegram-bot request adapter backed by aiohttp."""
 from __future__ import annotations
 
 import asyncio
-import json
-from typing import Any, Optional, Tuple
+from typing import Any
 
 import aiohttp
-from telegram.request import BaseRequest
-from telegram.request._requestdata import RequestData
+from telegram.error import NetworkError, TimedOut
+from telegram.request import BaseRequest, RequestData
 
 
 class AiohttpRequest(BaseRequest):
     """PTB BaseRequest implementation backed by aiohttp."""
 
-    # PTB requires these abstract properties
     @property
-    def read_timeout(self) -> Optional[float]:
+    def read_timeout(self) -> float | None:
         return self._read_timeout
 
     @property
-    def write_timeout(self) -> Optional[float]:
+    def write_timeout(self) -> float | None:
         return self._write_timeout
 
     @property
-    def connect_timeout(self) -> Optional[float]:
+    def connect_timeout(self) -> float | None:
         return self._connect_timeout
 
     @property
-    def pool_timeout(self) -> Optional[float]:
+    def pool_timeout(self) -> float | None:
         return self._pool_timeout
 
     def __init__(
@@ -46,51 +39,84 @@ class AiohttpRequest(BaseRequest):
         self._write_timeout = write_timeout
         self._connect_timeout = connect_timeout
         self._pool_timeout = pool_timeout
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
     async def initialize(self) -> None:
+        if self._session is not None and not self._session.closed:
+            return
         connector = aiohttp.TCPConnector(limit=10)
-        self._session = aiohttp.ClientSession(connector=connector)
+        self._session = aiohttp.ClientSession(connector=connector, trust_env=False)
 
     async def shutdown(self) -> None:
         if self._session and not self._session.closed:
             await self._session.close()
         self._session = None
 
+    @staticmethod
+    def _timeout_value(value: Any, default: float | None) -> float | None:
+        """Resolve PTB's DEFAULT_NONE sentinel without importing private APIs."""
+        return default if value is BaseRequest.DEFAULT_NONE else value
+
+    @staticmethod
+    def _request_body(request_data: RequestData | None) -> Any:
+        if request_data is None:
+            return None
+
+        fields = request_data.json_parameters
+        files = request_data.multipart_data
+        if not files:
+            return fields or None
+
+        form = aiohttp.FormData()
+        for name, value in fields.items():
+            form.add_field(name, value)
+        for name, (filename, content, content_type) in files.items():
+            form.add_field(
+                name,
+                content,
+                filename=filename,
+                content_type=content_type,
+            )
+        return form
+
     async def do_request(
         self,
         url: str,
         method: str,
-        request_data: Optional[RequestData] = None,
-        read_timeout: Optional[float] = None,
-        write_timeout: Optional[float] = None,
-        connect_timeout: Optional[float] = None,
-        pool_timeout: Optional[float] = None,
-    ) -> Tuple[int, bytes]:
+        request_data: RequestData | None = None,
+        read_timeout: Any = BaseRequest.DEFAULT_NONE,
+        write_timeout: Any = BaseRequest.DEFAULT_NONE,
+        connect_timeout: Any = BaseRequest.DEFAULT_NONE,
+        pool_timeout: Any = BaseRequest.DEFAULT_NONE,
+    ) -> tuple[int, bytes]:
         if self._session is None or self._session.closed:
             await self.initialize()
 
-        total = read_timeout or self._read_timeout
-        timeout = aiohttp.ClientTimeout(total=total)
+        effective_read = self._timeout_value(read_timeout, self._read_timeout)
+        effective_connect = self._timeout_value(
+            connect_timeout, self._connect_timeout
+        )
+        timeout = aiohttp.ClientTimeout(
+            total=None,
+            connect=effective_connect,
+            sock_connect=effective_connect,
+            sock_read=effective_read,
+        )
+        body = self._request_body(request_data)
 
-        if request_data is None or not request_data.parameters:
+        try:
+            assert self._session is not None
             async with self._session.request(
-                method, url, timeout=timeout
+                method,
+                url,
+                data=body,
+                headers={"User-Agent": self.USER_AGENT},
+                timeout=timeout,
             ) as resp:
                 return resp.status, await resp.read()
-
-        # Build multipart form data (PTB always uses form encoding)
-        form = aiohttp.FormData()
-        for key, val in request_data.parameters.items():
-            if hasattr(val, "read"):
-                # File-like object
-                form.add_field(key, val)
-            elif isinstance(val, (dict, list)):
-                form.add_field(key, json.dumps(val))
-            else:
-                form.add_field(key, str(val))
-
-        async with self._session.request(
-            method, url, data=form, timeout=timeout
-        ) as resp:
-            return resp.status, await resp.read()
+        except asyncio.TimeoutError as exc:
+            raise TimedOut from exc
+        except aiohttp.ClientError as exc:
+            raise NetworkError(
+                f"aiohttp.{exc.__class__.__name__}: {exc}"
+            ) from exc

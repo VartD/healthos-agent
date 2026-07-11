@@ -3,6 +3,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     network_mode: host
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
     environment:
       POSTGRES_USER: healthos
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
@@ -25,6 +26,7 @@ services:
       DATABASE_URL: postgresql+psycopg2://healthos:${POSTGRES_PASSWORD}@127.0.0.1:5432/healthos
       HEALTHOS_API_KEY: ${HEALTHOS_API_KEY:?Set HEALTHOS_API_KEY in .env}
       HEALTHOS_TIMEZONE: ${HEALTHOS_TIMEZONE:-Asia/Yekaterinburg}
+      BACKEND_BIND_HOST: 127.0.0.1
     depends_on:
       postgres:
         condition: service_healthy

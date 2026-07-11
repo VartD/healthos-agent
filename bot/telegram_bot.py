@@ -24,8 +24,11 @@ for _key in (
 
 from telegram import Update  # noqa: E402
 from telegram.ext import Application, CommandHandler, ContextTypes  # noqa: E402
-from telegram.request import HTTPXRequest  # noqa: E402
-from aiohttp_request import AiohttpRequest  # noqa: E402
+
+if __package__:
+    from .aiohttp_request import AiohttpRequest  # noqa: E402
+else:
+    from aiohttp_request import AiohttpRequest  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

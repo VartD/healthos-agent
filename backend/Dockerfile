@@ -14,7 +14,8 @@ COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
 
 ENV PYTHONUNBUFFERED=1
+ENV BACKEND_BIND_HOST=0.0.0.0
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host ${BACKEND_BIND_HOST} --port 8000"]
