@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,7 @@ def _to_views(rows: list[HealthEvent]) -> list[EventView]:
         EventView(
             event_type=r.event_type,
             value=r.value,
+            unit=r.unit,
             note=r.note,
             timestamp=r.timestamp,
             metadata=r.event_metadata,
@@ -30,6 +33,8 @@ RISK_LABEL_RU: dict[str, str] = {
     "poor_sleep_coffee": "Недосып и кофе",
     "glucose_high": "Глюкоза выше 8",
     "uric_high": "Мочевая кислота выше 360",
+    "coffee_late": "Кофе после 16:00",
+    "coffee_water_compensation": "Недостаточно воды относительно объёма кофе",
 }
 
 
@@ -56,9 +61,15 @@ SEVERE_SYMPTOM_MARKERS = (
 )
 
 
-def _severe_symptom(events: list[HealthEvent]) -> bool:
+def _severe_symptom(events: list[HealthEvent], *, window_hours: int = 24) -> bool:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
     for r in events:
         if r.event_type != EventType.symptom or not r.note:
+            continue
+        timestamp = r.timestamp
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        if timestamp < cutoff:
             continue
         low = r.note.lower()
         if any(m in low for m in SEVERE_SYMPTOM_MARKERS):

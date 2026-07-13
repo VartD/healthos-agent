@@ -1,30 +1,58 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
+    network_mode: host
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
     environment:
       POSTGRES_USER: healthos
-      POSTGRES_PASSWORD: healthos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: healthos
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U healthos -d healthos"]
+      test: ["CMD-SHELL", "pg_isready -U healthos -d healthos -h 127.0.0.1"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   backend:
+    restart: unless-stopped
     build:
       context: ./backend
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
+    network_mode: host
     environment:
-      DATABASE_URL: postgresql+psycopg2://healthos:healthos@postgres:5432/healthos
+      DATABASE_URL: postgresql+psycopg2://healthos:${POSTGRES_PASSWORD}@127.0.0.1:5432/healthos
+      HEALTHOS_API_KEY: ${HEALTHOS_API_KEY:?Set HEALTHOS_API_KEY in .env}
+      HEALTHOS_TIMEZONE: ${HEALTHOS_TIMEZONE:-Asia/Yekaterinburg}
+      BACKEND_BIND_HOST: 127.0.0.1
     depends_on:
       postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  bot:
+    restart: unless-stopped
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    network_mode: host
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in .env}
+      HEALTHOS_API_KEY: ${HEALTHOS_API_KEY:?Set HEALTHOS_API_KEY in .env}
+      BACKEND_URL: http://127.0.0.1:8000
+    depends_on:
+      backend:
         condition: service_healthy
 
 volumes:

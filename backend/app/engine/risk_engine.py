@@ -5,8 +5,9 @@ from zoneinfo import ZoneInfo
 
 from app.engine.state_engine import EventView, _local_date, _today_events
 from app.models import EventType
+from app.config import settings
 
-TZ = ZoneInfo("Europe/Moscow")
+TZ = ZoneInfo(settings.healthos_timezone)
 
 
 MEAT_KEYWORDS = ("мясо", "стейк", "биф", "говяд", "свинин", "куриц", "рыба", "протеин", "protein", "steak", "meat")
@@ -61,13 +62,13 @@ def _protein_meat_today(events: list[EventView], today: date) -> bool:
 
 
 def _latest_glucose_today(events: list[EventView], today: date) -> float | None:
-    glucose = [e.value for e in _today_events(events, today) if e.event_type == EventType.glucose and e.value is not None]
-    return max(glucose) if glucose else None
+    glucose = [e for e in _today_events(events, today) if e.event_type == EventType.glucose and e.value is not None]
+    return float(max(glucose, key=lambda e: e.timestamp).value) if glucose else None
 
 
 def _latest_uric_today(events: list[EventView], today: date) -> float | None:
-    vals = [e.value for e in _today_events(events, today) if e.event_type == EventType.uric_acid and e.value is not None]
-    return max(vals) if vals else None
+    values = [e for e in _today_events(events, today) if e.event_type == EventType.uric_acid and e.value is not None]
+    return float(max(values, key=lambda e: e.timestamp).value) if values else None
 
 
 def _sleep_hours_recent(events: list[EventView], today: date) -> float | None:
@@ -98,7 +99,7 @@ def detect_risks(events: list[EventView], *, today: date | None = None) -> list[
         event_type = getattr(e, "event_type", "")
         type_str = event_type.value if hasattr(event_type, "value") else str(event_type or "")
         value = getattr(e, "value", 0) or 0
-        unit = getattr(e, "unit", None)
+        unit = e.unit
         timestamp = getattr(e, "timestamp", None)
         try:
             val_f = float(value)
@@ -152,13 +153,10 @@ def detect_risks(events: list[EventView], *, today: date | None = None) -> list[
     if uric is not None and uric > 360:
         risks.append("uric_high")
 
-    if coffee_today and water_ml_today < 500:
-        risks.append("кофе + низкая вода")
-
     if coffee_after_16_moscow:
-        risks.append("кофе поздно вечером")
+        risks.append("coffee_late")
 
     if coffee_today and water_ml_today < coffee_ml_today * 2:
-        risks.append("кофе + недостаточная компенсация водой")
+        risks.append("coffee_water_compensation")
 
     return risks
