@@ -55,6 +55,15 @@ def test_health_data_endpoints_require_api_key(client):
         "/events",
         json={"user_id": "u1", "event_type": "water", "value": 300, "unit": "ml"},
     ).status_code == 401
+    assert client.post(
+        "/events/batch",
+        json={
+            "events": [
+                {"user_id": "u1", "event_type": "water", "value": 300, "unit": "ml"},
+                {"user_id": "u1", "event_type": "food", "note": "овсянка"},
+            ]
+        },
+    ).status_code == 401
 
 
 def test_invalid_api_key_is_rejected(client):
@@ -90,6 +99,58 @@ def test_events_are_filtered_by_user_id(client, auth_headers):
     )
     assert response.status_code == 200
     assert [item["user_id"] for item in response.json()] == ["u1"]
+
+
+def test_event_batch_saves_all_events_together(client, auth_headers):
+    response = client.post(
+        "/events/batch",
+        headers=auth_headers,
+        json={
+            "events": [
+                {"user_id": "u1", "event_type": "water", "value": 300, "unit": "ml"},
+                {"user_id": "u1", "event_type": "food", "note": "овсянка"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+    assert [event["event_type"] for event in response.json()] == ["water", "food"]
+
+    events = client.get(
+        "/events", params={"user_id": "u1"}, headers=auth_headers
+    )
+    assert len(events.json()) == 2
+
+
+def test_event_batch_rejects_everything_if_one_event_is_invalid(client, auth_headers):
+    response = client.post(
+        "/events/batch",
+        headers=auth_headers,
+        json={
+            "events": [
+                {"user_id": "u1", "event_type": "water", "value": 300, "unit": "ml"},
+                {"user_id": "u1", "event_type": "food"},
+            ]
+        },
+    )
+    assert response.status_code == 422
+    events = client.get(
+        "/events", params={"user_id": "u1"}, headers=auth_headers
+    )
+    assert events.json() == []
+
+
+def test_event_batch_cannot_mix_users(client, auth_headers):
+    response = client.post(
+        "/events/batch",
+        headers=auth_headers,
+        json={
+            "events": [
+                {"user_id": "u1", "event_type": "water", "value": 300, "unit": "ml"},
+                {"user_id": "u2", "event_type": "food", "note": "овсянка"},
+            ]
+        },
+    )
+    assert response.status_code == 422
 
 
 def test_negative_water_is_rejected(client, auth_headers):
@@ -209,3 +270,71 @@ def test_old_severe_symptom_does_not_trigger_permanent_alert(client, auth_header
     )
     assert response.status_code == 200
     assert response.json()["disclaimer"] is None
+
+
+def test_critical_blood_pressure_has_deterministic_safety_response(
+    client, auth_headers
+):
+    created = client.post(
+        "/events",
+        headers=auth_headers,
+        json={
+            "user_id": "u1",
+            "event_type": "blood_pressure",
+            "value": 185,
+            "unit": "mmHg",
+            "note": "Давление 185/122",
+            "metadata": {"systolic": 185, "diastolic": 122},
+        },
+    )
+    assert created.status_code == 200
+
+    response = client.get(
+        "/analyze", params={"user_id": "u1"}, headers=auth_headers
+    )
+    data = response.json()
+    assert "Давление ≥180 и/или ≥120 мм рт. ст." in data["risks"]
+    assert data["commands"][0] == "подождите 1 минуту и повторно измерьте давление"
+    assert "срочно свяжитесь с врачом" in data["disclaimer"]
+
+
+def test_critical_pressure_with_chest_pain_says_call_112(client, auth_headers):
+    client.post(
+        "/events",
+        headers=auth_headers,
+        json={
+            "user_id": "u1",
+            "event_type": "blood_pressure",
+            "value": 190,
+            "unit": "mmHg",
+            "note": "Давление 190/125 и боль в груди",
+            "metadata": {"systolic": 190, "diastolic": 125},
+        },
+    )
+    response = client.get(
+        "/analyze", params={"user_id": "u1"}, headers=auth_headers
+    )
+    assert "Позвоните 112" in response.json()["disclaimer"]
+
+
+def test_critical_pressure_is_prioritized_over_other_risks(client, auth_headers):
+    events = (
+        {"event_type": "coffee", "value": 200, "unit": "ml"},
+        {
+            "event_type": "blood_pressure",
+            "value": 181,
+            "unit": "mmHg",
+            "note": "Давление 181/80",
+            "metadata": {"systolic": 181, "diastolic": 80},
+        },
+    )
+    for event in events:
+        response = client.post(
+            "/events", headers=auth_headers, json={"user_id": "u1", **event}
+        )
+        assert response.status_code == 200
+
+    response = client.get(
+        "/analyze", params={"user_id": "u1"}, headers=auth_headers
+    )
+    assert response.json()["risks"][0] == "Давление ≥180 и/или ≥120 мм рт. ст."

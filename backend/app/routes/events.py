@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import HealthEvent
-from app.schemas import AnalysisResponse, EventCreate, EventRead
+from app.schemas import AnalysisResponse, EventBatchCreate, EventCreate, EventRead
 from app.analysis import analyze_user
 from app.security import require_api_key
 
@@ -29,6 +29,30 @@ def post_event(payload: EventCreate, db: Session = Depends(get_db)) -> HealthEve
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.post("/events/batch", response_model=list[EventRead])
+def post_event_batch(
+    payload: EventBatchCreate, db: Session = Depends(get_db)
+) -> list[HealthEvent]:
+    now = datetime.now(timezone.utc)
+    rows = [
+        HealthEvent(
+            user_id=event.user_id,
+            timestamp=event.timestamp or now,
+            event_type=event.event_type,
+            value=event.value,
+            unit=event.unit,
+            note=event.note,
+            event_metadata=event.metadata,
+        )
+        for event in payload.events
+    ]
+    db.add_all(rows)
+    db.commit()
+    for row in rows:
+        db.refresh(row)
+    return rows
 
 
 @router.get("/events", response_model=list[EventRead])

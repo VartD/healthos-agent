@@ -5,6 +5,7 @@ load_dotenv()
 
 import logging
 from pathlib import Path
+import time
 from typing import Any
 
 import httpx
@@ -23,12 +24,34 @@ for _key in (
     os.environ.pop(_key, None)
 
 from telegram import Update  # noqa: E402
-from telegram.ext import Application, CommandHandler, ContextTypes  # noqa: E402
+from telegram.ext import (  # noqa: E402
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 if __package__:
     from .aiohttp_request import AiohttpRequest  # noqa: E402
+    from .natural_language import (  # noqa: E402
+        looks_like_sleep_checkin,
+        looks_like_event_batch,
+        parse_event,
+        parse_event_batch,
+        parse_sleep_checkin,
+        parse_uncertain_event,
+    )
 else:
     from aiohttp_request import AiohttpRequest  # noqa: E402
+    from natural_language import (  # noqa: E402
+        looks_like_sleep_checkin,
+        looks_like_event_batch,
+        parse_event,
+        parse_event_batch,
+        parse_sleep_checkin,
+        parse_uncertain_event,
+    )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,6 +63,7 @@ logger.info("BACKEND_URL=%s", BACKEND_URL)
 
 # Запросы к своему backend не должны ходить через корпоративный proxy из env
 _HTTPX_BACKEND = {"trust_env": False}
+PENDING_EVENT_TTL_SECONDS = 600
 
 
 def _api_headers() -> dict[str, str]:
@@ -52,6 +76,19 @@ async def _post_event(client: httpx.AsyncClient, payload: dict[str, Any]) -> dic
     )
     r.raise_for_status()
     return r.json()
+
+
+async def _post_event_batch(
+    client: httpx.AsyncClient, payloads: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    response = await client.post(
+        f"{BACKEND_URL}/events/batch",
+        json={"events": payloads},
+        headers=_api_headers(),
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 async def _analyze(client: httpx.AsyncClient, user_id: str) -> dict[str, Any]:
@@ -161,6 +198,12 @@ def _user_id(update: Update) -> str:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "HealthOS — журнал событий и мягкие операционные подсказки.\n\n"
+        "Можно писать обычным текстом: «вода 300 мл», «давление 120/80, "
+        "пульс 65», «съел овсянку» или «болит голова».\n"
+        "Утренний чекин: «спал 7,5 часов, качество 4, просыпался 1 раз, "
+        "энергия 3».\n"
+        "Несколько событий разделяйте точкой с запятой — перед сохранением я "
+        "покажу весь список.\n\n"
         "Команды журнала: /water, /glucose, /uric, /coffee, /food, /workout, "
         "/sauna, /symptom, /status\n"
         "Сон: /profile, /morning, /sleepweek\n\n"
@@ -202,6 +245,206 @@ async def _log_and_reply(update: Update, payload: dict[str, Any]) -> None:
         )
         return
     await update.message.reply_text(_format_digest(data))  # type: ignore[union-attr]
+
+
+def _format_event_reply(acknowledgement: str, data: dict[str, Any]) -> str:
+    risks = data.get("risks") or []
+    commands = data.get("commands") or []
+    disclaimer = data.get("disclaimer")
+    lines = [f"Записал ✅ {acknowledgement}."]
+    if risks:
+        lines.append(f"Главный риск: {risks[0]}.")
+    if commands:
+        lines.append(f"Сейчас: {commands[0]}.")
+    if disclaimer:
+        lines.extend(("", disclaimer))
+    return "\n".join(lines)
+
+
+def _format_batch_reply(
+    acknowledgements: list[str], data: dict[str, Any]
+) -> str:
+    lines = [f"Записал ✅ Событий: {len(acknowledgements)}."]
+    lines.extend(
+        f"{index}. {acknowledgement}"
+        for index, acknowledgement in enumerate(acknowledgements, start=1)
+    )
+    risks = data.get("risks") or []
+    commands = data.get("commands") or []
+    disclaimer = data.get("disclaimer")
+    if risks:
+        lines.append(f"Главный риск: {risks[0]}.")
+    if commands:
+        lines.append(f"Сейчас: {commands[0]}.")
+    if disclaimer:
+        lines.extend(("", disclaimer))
+    return "\n".join(lines)
+
+
+async def _save_free_text_event(
+    update: Update, payload: dict[str, Any], acknowledgement: str
+) -> None:
+    message = update.message
+    payload = dict(payload)
+    uid = _user_id(update)
+    payload["user_id"] = uid
+    try:
+        async with httpx.AsyncClient(**_HTTPX_BACKEND) as client:
+            await _post_event(client, payload)
+            data = await _analyze(client, uid)
+    except httpx.HTTPStatusError as exc:
+        logger.warning("free-text event rejected: status=%s", exc.response.status_code)
+        await message.reply_text(  # type: ignore[union-attr]
+            "Не смог сохранить: значение выглядит неполным или недопустимым. "
+            "Проверьте число и единицы."
+        )
+        return
+    except httpx.HTTPError:
+        await message.reply_text("Backend временно недоступен.")  # type: ignore[union-attr]
+        return
+    await message.reply_text(_format_event_reply(acknowledgement, data))  # type: ignore[union-attr]
+
+
+async def _save_free_text_batch(
+    update: Update,
+    payloads: list[dict[str, Any]],
+    acknowledgements: list[str],
+) -> None:
+    message = update.message
+    uid = _user_id(update)
+    events = [{**payload, "user_id": uid} for payload in payloads]
+    try:
+        async with httpx.AsyncClient(**_HTTPX_BACKEND) as client:
+            await _post_event_batch(client, events)
+            data = await _analyze(client, uid)
+    except httpx.HTTPStatusError as exc:
+        logger.warning("free-text batch rejected: status=%s", exc.response.status_code)
+        await message.reply_text(  # type: ignore[union-attr]
+            "Набор событий отклонён целиком. Ничего не записано; проверьте "
+            "значения и единицы."
+        )
+        return
+    except httpx.HTTPError:
+        await message.reply_text("Backend временно недоступен.")  # type: ignore[union-attr]
+        return
+    await message.reply_text(_format_batch_reply(acknowledgements, data))  # type: ignore[union-attr]
+
+
+async def _save_free_text_sleep(update: Update, payload: dict[str, Any]) -> None:
+    message = update.message
+    payload = dict(payload)
+    payload["user_id"] = _user_id(update)
+    try:
+        async with httpx.AsyncClient(**_HTTPX_BACKEND) as client:
+            checkin = await _put_sleep_checkin(client, payload)
+            weekly = await _get_sleep_weekly(client, payload["user_id"])
+    except httpx.HTTPStatusError as exc:
+        logger.warning("free-text sleep rejected: status=%s", exc.response.status_code)
+        await message.reply_text(  # type: ignore[union-attr]
+            "Не смог сохранить сон. Проверьте: часы 0–24, качество и энергия "
+            "1–5, пробуждения 0–20."
+        )
+        return
+    except httpx.HTTPError:
+        await message.reply_text("Backend временно недоступен.")  # type: ignore[union-attr]
+        return
+    await message.reply_text(  # type: ignore[union-attr]
+        "Записал ✅ "
+        f"Сон {checkin['duration_hours']:g} ч, качество {checkin['quality']}/5, "
+        f"пробуждения {checkin['awakenings']}, энергия {checkin['energy']}/5.\n"
+        f"Сейчас: {weekly['next_best_action']}"
+    )
+
+
+async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    text = message.text.strip() if message and message.text else ""
+    normalized = text.lower().replace("ё", "е")
+    pending_key = (
+        "pending_batch"
+        if context.user_data.get("pending_batch")
+        else "pending_event"
+    )
+    pending = context.user_data.get(pending_key)
+    if pending and time.time() - pending.get("created_at", 0) > PENDING_EVENT_TTL_SECONDS:
+        context.user_data.pop(pending_key, None)
+        pending = None
+    if pending and normalized in {"да", "сохранить", "верно"}:
+        context.user_data.pop(pending_key, None)
+        if pending_key == "pending_batch":
+            await _save_free_text_batch(
+                update, pending["payloads"], pending["acknowledgements"]
+            )
+        else:
+            await _save_free_text_event(
+                update, pending["payload"], pending["acknowledgement"]
+            )
+        return
+    if pending and normalized in {"нет", "отмена", "неверно"}:
+        context.user_data.pop(pending_key, None)
+        await message.reply_text("Отменил. Ничего не записано.")  # type: ignore[union-attr]
+        return
+    if pending:
+        context.user_data.pop(pending_key, None)
+
+    sleep = parse_sleep_checkin(text)
+    if sleep is not None:
+        await _save_free_text_sleep(update, sleep.payload)
+        return
+    if looks_like_sleep_checkin(text):
+        await message.reply_text(  # type: ignore[union-attr]
+            "Для утреннего чекина нужны четыре значения. Например: «Спал 7,5 "
+            "часов, качество 4, просыпался 1 раз, энергия 3». Ничего не записал."
+        )
+        return
+
+    batch = parse_event_batch(text)
+    if batch is not None:
+        acknowledgements = [event.acknowledgement for event in batch]
+        context.user_data["pending_batch"] = {
+            "payloads": [dict(event.payload) for event in batch],
+            "acknowledgements": acknowledgements,
+            "created_at": time.time(),
+        }
+        preview = "\n".join(
+            f"{index}. {acknowledgement}"
+            for index, acknowledgement in enumerate(acknowledgements, start=1)
+        )
+        await message.reply_text(  # type: ignore[union-attr]
+            f"Проверьте события:\n{preview}\nСохранить всё? Ответьте «да» или «нет». "
+            "Пока ничего не записал."
+        )
+        return
+    if looks_like_event_batch(text):
+        await message.reply_text(  # type: ignore[union-attr]
+            "Не распознал все части сообщения, поэтому ничего не записал. "
+            "Разделите события точкой с запятой и укажите числа с единицами."
+        )
+        return
+
+    parsed = parse_event(text)
+    if parsed is not None:
+        await _save_free_text_event(update, parsed.payload, parsed.acknowledgement)
+        return
+
+    uncertain = parse_uncertain_event(text)
+    if uncertain is not None:
+        context.user_data["pending_event"] = {
+            "payload": dict(uncertain.payload),
+            "acknowledgement": uncertain.acknowledgement,
+            "created_at": time.time(),
+        }
+        await message.reply_text(  # type: ignore[union-attr]
+            f"Правильно понял: {uncertain.acknowledgement}? "
+            "Ответьте «да» или «нет». Пока ничего не записал."
+        )
+        return
+
+    await message.reply_text(  # type: ignore[union-attr]
+        "Не уверен, что правильно понял, поэтому ничего не записал. "
+        "Напишите явно, например: «вода 300 мл», «давление 120/80, "
+        "пульс 65» или «съел овсянку». Команды тоже продолжают работать."
+    )
 
 
 async def _parse_float(update: Update, context: ContextTypes.DEFAULT_TYPE, example: str) -> float | None:
@@ -426,6 +669,7 @@ def main() -> None:
     app.add_handler(CommandHandler("profile", cmd_profile))
     app.add_handler(CommandHandler("morning", cmd_morning))
     app.add_handler(CommandHandler("sleepweek", cmd_sleepweek))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
     logger.info("Bot polling… backend=%s", BACKEND_URL)
     app.run_polling()
 

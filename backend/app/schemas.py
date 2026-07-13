@@ -90,6 +90,16 @@ class EventRead(BaseModel):
     model_config = {"from_attributes": True, "populate_by_name": True}
 
 
+class EventBatchCreate(BaseModel):
+    events: list[EventCreate] = Field(min_length=2, max_length=20)
+
+    @model_validator(mode="after")
+    def require_one_user(self) -> "EventBatchCreate":
+        if len({event.user_id for event in self.events}) != 1:
+            raise ValueError("all batch events must belong to one user")
+        return self
+
+
 class Mode(str, Enum):
     STABILIZATION = "STABILIZATION"
     TRAINING = "TRAINING"

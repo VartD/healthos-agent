@@ -45,3 +45,80 @@ jobs:
         run: alembic upgrade head
       - name: Run tests against PostgreSQL
         run: pytest
+
+  docker-acceptance:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: healthos_docker_acceptance_password
+      HEALTHOS_API_KEY: ci-healthos-api-key-with-at-least-32-characters
+      HEALTHOS_TIMEZONE: Asia/Yekaterinburg
+      TELEGRAM_BOT_TOKEN: 123456789:dummy-token-for-image-build-only
+      COMPOSE_PROJECT_NAME: healthos-acceptance-${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production images
+        run: docker compose build backend bot
+
+      - name: Start isolated PostgreSQL and backend
+        run: docker compose up -d postgres backend
+
+      - name: Wait for backend readiness
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs --no-color postgres backend
+          exit 1
+
+      - name: Verify health, localhost binds and atomic batch persistence
+        run: |
+          test "$(curl --fail --silent http://127.0.0.1:8000/health/live | jq -r .status)" = "ok"
+          test "$(curl --fail --silent http://127.0.0.1:8000/health/ready | jq -r .status)" = "ready"
+
+          ss -ltnH | grep -E '127\.0\.0\.1:(5432|8000)'
+          if ss -ltnH | grep -E '(0\.0\.0\.0|\*):(5432|8000)'; then
+            echo "HealthOS ports must not bind to all interfaces"
+            exit 1
+          fi
+
+          curl --fail --silent --request POST http://127.0.0.1:8000/events/batch \
+            --header "X-API-Key: ${HEALTHOS_API_KEY}" \
+            --header 'Content-Type: application/json' \
+            --data '{"events":[{"user_id":"docker-acceptance","event_type":"water","value":300,"unit":"ml"},{"user_id":"docker-acceptance","event_type":"food","note":"овсянка"}]}' \
+            | jq --exit-status 'length == 2'
+
+          docker compose restart postgres
+          for attempt in $(seq 1 30); do
+            if test "$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q postgres)")" = "healthy"; then
+              break
+            fi
+            sleep 2
+          done
+          docker compose restart backend
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health/ready; then
+              break
+            fi
+            sleep 2
+          done
+
+          curl --fail --silent \
+            --header "X-API-Key: ${HEALTHOS_API_KEY}" \
+            'http://127.0.0.1:8000/events?user_id=docker-acceptance' \
+            | jq --exit-status 'length == 2'
+
+          if docker compose logs --no-color postgres backend | grep -E 'Traceback|request_failed'; then
+            echo "Unexpected application error found in Docker logs"
+            exit 1
+          fi
+
+      - name: Remove isolated acceptance environment
+        if: always()
+        run: docker compose down --volumes --remove-orphans
