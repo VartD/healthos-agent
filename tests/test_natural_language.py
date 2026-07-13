@@ -1,4 +1,8 @@
-from bot.natural_language import parse_event
+from bot.natural_language import (
+    parse_event,
+    parse_sleep_checkin,
+    parse_uncertain_event,
+)
 
 
 def test_parses_water_in_natural_russian() -> None:
@@ -31,3 +35,26 @@ def test_does_not_guess_ambiguous_or_implausible_input() -> None:
     assert parse_event("кофе") is None
     assert parse_event("как у меня дела?") is None
     assert parse_event("давление 999/20") is None
+
+
+def test_missing_volume_unit_requires_confirmation() -> None:
+    assert parse_event("Вода 300") is None
+    pending = parse_uncertain_event("Вода 300")
+    assert pending is not None
+    assert pending.payload == {"event_type": "water", "value": 300.0, "unit": "ml"}
+    assert parse_uncertain_event("Вода 2") is None
+
+
+def test_parses_complete_natural_sleep_checkin() -> None:
+    checkin = parse_sleep_checkin(
+        "Спал 7,5 часов, качество 4, просыпался 1 раз, энергия 3"
+    )
+    assert checkin is not None
+    assert checkin.payload["duration_hours"] == 7.5
+    assert checkin.payload["quality"] == 4
+    assert checkin.payload["awakenings"] == 1
+    assert checkin.payload["energy"] == 3
+
+
+def test_incomplete_natural_sleep_checkin_is_not_parsed() -> None:
+    assert parse_sleep_checkin("Спал 7 часов, энергия 3") is None

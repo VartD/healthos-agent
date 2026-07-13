@@ -176,7 +176,7 @@ def detect_risks(events: list[EventView], *, today: date | None = None) -> list[
     if blood_pressure is not None:
         systolic, diastolic = blood_pressure
         if systolic >= 180 or diastolic >= 120:
-            risks.append("blood_pressure_critical")
+            risks.insert(0, "blood_pressure_critical")
 
     if coffee_after_16_moscow:
         risks.append("coffee_late")

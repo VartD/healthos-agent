@@ -254,3 +254,26 @@ def test_critical_pressure_with_chest_pain_says_call_112(client, auth_headers):
         "/analyze", params={"user_id": "u1"}, headers=auth_headers
     )
     assert "Позвоните 112" in response.json()["disclaimer"]
+
+
+def test_critical_pressure_is_prioritized_over_other_risks(client, auth_headers):
+    events = (
+        {"event_type": "coffee", "value": 200, "unit": "ml"},
+        {
+            "event_type": "blood_pressure",
+            "value": 181,
+            "unit": "mmHg",
+            "note": "Давление 181/80",
+            "metadata": {"systolic": 181, "diastolic": 80},
+        },
+    )
+    for event in events:
+        response = client.post(
+            "/events", headers=auth_headers, json={"user_id": "u1", **event}
+        )
+        assert response.status_code == 200
+
+    response = client.get(
+        "/analyze", params={"user_id": "u1"}, headers=auth_headers
+    )
+    assert response.json()["risks"][0] == "Давление ≥180 и/или ≥120 мм рт. ст."

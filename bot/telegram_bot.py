@@ -5,6 +5,7 @@ load_dotenv()
 
 import logging
 from pathlib import Path
+import time
 from typing import Any
 
 import httpx
@@ -33,10 +34,20 @@ from telegram.ext import (  # noqa: E402
 
 if __package__:
     from .aiohttp_request import AiohttpRequest  # noqa: E402
-    from .natural_language import parse_event  # noqa: E402
+    from .natural_language import (  # noqa: E402
+        looks_like_sleep_checkin,
+        parse_event,
+        parse_sleep_checkin,
+        parse_uncertain_event,
+    )
 else:
     from aiohttp_request import AiohttpRequest  # noqa: E402
-    from natural_language import parse_event  # noqa: E402
+    from natural_language import (  # noqa: E402
+        looks_like_sleep_checkin,
+        parse_event,
+        parse_sleep_checkin,
+        parse_uncertain_event,
+    )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,6 +59,7 @@ logger.info("BACKEND_URL=%s", BACKEND_URL)
 
 # Запросы к своему backend не должны ходить через корпоративный proxy из env
 _HTTPX_BACKEND = {"trust_env": False}
+PENDING_EVENT_TTL_SECONDS = 600
 
 
 def _api_headers() -> dict[str, str]:
@@ -170,7 +182,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "HealthOS — журнал событий и мягкие операционные подсказки.\n\n"
         "Можно писать обычным текстом: «вода 300 мл», «давление 120/80, "
-        "пульс 65», «съел овсянку» или «болит голова».\n\n"
+        "пульс 65», «съел овсянку» или «болит голова».\n"
+        "Утренний чекин: «спал 7,5 часов, качество 4, просыпался 1 раз, "
+        "энергия 3».\n\n"
         "Команды журнала: /water, /glucose, /uric, /coffee, /food, /workout, "
         "/sauna, /symptom, /status\n"
         "Сон: /profile, /morning, /sleepweek\n\n"
@@ -228,19 +242,11 @@ def _format_event_reply(acknowledgement: str, data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _save_free_text_event(
+    update: Update, payload: dict[str, Any], acknowledgement: str
+) -> None:
     message = update.message
-    text = message.text.strip() if message and message.text else ""
-    parsed = parse_event(text)
-    if parsed is None:
-        await message.reply_text(  # type: ignore[union-attr]
-            "Не уверен, что правильно понял, поэтому ничего не записал. "
-            "Напишите явно, например: «вода 300 мл», «давление 120/80, "
-            "пульс 65» или «съел овсянку». Команды тоже продолжают работать."
-        )
-        return
-
-    payload = dict(parsed.payload)
+    payload = dict(payload)
     uid = _user_id(update)
     payload["user_id"] = uid
     try:
@@ -257,7 +263,90 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     except httpx.HTTPError:
         await message.reply_text("Backend временно недоступен.")  # type: ignore[union-attr]
         return
-    await message.reply_text(_format_event_reply(parsed.acknowledgement, data))  # type: ignore[union-attr]
+    await message.reply_text(_format_event_reply(acknowledgement, data))  # type: ignore[union-attr]
+
+
+async def _save_free_text_sleep(update: Update, payload: dict[str, Any]) -> None:
+    message = update.message
+    payload = dict(payload)
+    payload["user_id"] = _user_id(update)
+    try:
+        async with httpx.AsyncClient(**_HTTPX_BACKEND) as client:
+            checkin = await _put_sleep_checkin(client, payload)
+            weekly = await _get_sleep_weekly(client, payload["user_id"])
+    except httpx.HTTPStatusError as exc:
+        logger.warning("free-text sleep rejected: status=%s", exc.response.status_code)
+        await message.reply_text(  # type: ignore[union-attr]
+            "Не смог сохранить сон. Проверьте: часы 0–24, качество и энергия "
+            "1–5, пробуждения 0–20."
+        )
+        return
+    except httpx.HTTPError:
+        await message.reply_text("Backend временно недоступен.")  # type: ignore[union-attr]
+        return
+    await message.reply_text(  # type: ignore[union-attr]
+        "Записал ✅ "
+        f"Сон {checkin['duration_hours']:g} ч, качество {checkin['quality']}/5, "
+        f"пробуждения {checkin['awakenings']}, энергия {checkin['energy']}/5.\n"
+        f"Сейчас: {weekly['next_best_action']}"
+    )
+
+
+async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    text = message.text.strip() if message and message.text else ""
+    normalized = text.lower().replace("ё", "е")
+    pending = context.user_data.get("pending_event")
+    if pending and time.time() - pending.get("created_at", 0) > PENDING_EVENT_TTL_SECONDS:
+        context.user_data.pop("pending_event", None)
+        pending = None
+    if pending and normalized in {"да", "сохранить", "верно"}:
+        context.user_data.pop("pending_event", None)
+        await _save_free_text_event(
+            update, pending["payload"], pending["acknowledgement"]
+        )
+        return
+    if pending and normalized in {"нет", "отмена", "неверно"}:
+        context.user_data.pop("pending_event", None)
+        await message.reply_text("Отменил. Ничего не записано.")  # type: ignore[union-attr]
+        return
+    if pending:
+        context.user_data.pop("pending_event", None)
+
+    sleep = parse_sleep_checkin(text)
+    if sleep is not None:
+        await _save_free_text_sleep(update, sleep.payload)
+        return
+    if looks_like_sleep_checkin(text):
+        await message.reply_text(  # type: ignore[union-attr]
+            "Для утреннего чекина нужны четыре значения. Например: «Спал 7,5 "
+            "часов, качество 4, просыпался 1 раз, энергия 3». Ничего не записал."
+        )
+        return
+
+    parsed = parse_event(text)
+    if parsed is not None:
+        await _save_free_text_event(update, parsed.payload, parsed.acknowledgement)
+        return
+
+    uncertain = parse_uncertain_event(text)
+    if uncertain is not None:
+        context.user_data["pending_event"] = {
+            "payload": dict(uncertain.payload),
+            "acknowledgement": uncertain.acknowledgement,
+            "created_at": time.time(),
+        }
+        await message.reply_text(  # type: ignore[union-attr]
+            f"Правильно понял: {uncertain.acknowledgement}? "
+            "Ответьте «да» или «нет». Пока ничего не записал."
+        )
+        return
+
+    await message.reply_text(  # type: ignore[union-attr]
+        "Не уверен, что правильно понял, поэтому ничего не записал. "
+        "Напишите явно, например: «вода 300 мл», «давление 120/80, "
+        "пульс 65» или «съел овсянку». Команды тоже продолжают работать."
+    )
 
 
 async def _parse_float(update: Update, context: ContextTypes.DEFAULT_TYPE, example: str) -> float | None:

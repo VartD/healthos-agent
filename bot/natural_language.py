@@ -21,6 +21,11 @@ class ParsedEvent:
     acknowledgement: str
 
 
+@dataclass(frozen=True)
+class ParsedSleepCheckin:
+    payload: dict[str, Any]
+
+
 def _number(value: str) -> float:
     return float(value.replace(",", "."))
 
@@ -82,7 +87,7 @@ def parse_event(text: str) -> ParsedEvent | None:
 
     water = re.search(
         rf"(?:вод[аыуе]|выпил(?:а)?\s+вод[ы]?|попил(?:а)?)\s*[:=-]?\s*{NUMBER}"
-        rf"\s*(мл|л|литр(?:а|ов)?)?",
+        rf"\s*(мл|л|литр(?:а|ов)?)",
         low,
     ) or re.search(
         rf"{NUMBER}\s*(мл|л|литр(?:а|ов)?)\s+(?:вод[аыуе]|водички)", low
@@ -157,3 +162,63 @@ def parse_event(text: str) -> ParsedEvent | None:
         )
 
     return None
+
+
+def parse_uncertain_event(text: str) -> ParsedEvent | None:
+    """Return a plausible event that requires an explicit user confirmation."""
+
+    original = " ".join(text.strip().split())
+    low = original.lower().replace("ё", "е")
+    patterns = (
+        ("water", r"(?:вод[аыуе]|водички)", "Вода"),
+        ("coffee", r"кофе", "Кофе"),
+        ("tea", r"(?:чай|чая)", "Чай"),
+    )
+    for event_type, marker, label in patterns:
+        match = re.search(rf"{marker}\s*[:=-]?\s*{NUMBER}(?!\s*(?:мл|л|литр))", low)
+        if not match:
+            continue
+        value = _number(match.group(1))
+        if 50 <= value <= 1000:
+            return ParsedEvent(
+                payload={"event_type": event_type, "value": value, "unit": "ml"},
+                acknowledgement=f"{label}: {value:g} мл",
+            )
+    return None
+
+
+def looks_like_sleep_checkin(text: str) -> bool:
+    low = text.lower().replace("ё", "е")
+    return bool(re.search(r"\b(?:спал(?:а)?|сон)\b", low))
+
+
+def parse_sleep_checkin(text: str) -> ParsedSleepCheckin | None:
+    """Parse a complete morning sleep check-in from one explicit phrase."""
+
+    original = " ".join(text.strip().split())
+    low = original.lower().replace("ё", "е")
+    if not looks_like_sleep_checkin(low):
+        return None
+
+    duration = re.search(
+        rf"(?:спал(?:а)?|сон)\s*[:=-]?\s*{NUMBER}\s*(?:ч(?:ас(?:а|ов)?)?)?",
+        low,
+    )
+    quality = re.search(r"качество\s*[:=-]?\s*([1-5])\b", low)
+    awakenings = re.search(
+        r"(?:просыпал(?:ся|ась)|пробуждени[яй])\s*[:=-]?\s*(\d{1,2})\b",
+        low,
+    )
+    energy = re.search(r"энерги[яи]\s*[:=-]?\s*([1-5])\b", low)
+    if not all((duration, quality, awakenings, energy)):
+        return None
+
+    assert duration and quality and awakenings and energy
+    payload: dict[str, Any] = {
+        "duration_hours": _number(duration.group(1)),
+        "quality": int(quality.group(1)),
+        "awakenings": int(awakenings.group(1)),
+        "energy": int(energy.group(1)),
+        "note": original,
+    }
+    return ParsedSleepCheckin(payload=payload)
