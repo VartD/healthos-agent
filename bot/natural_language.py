@@ -222,3 +222,25 @@ def parse_sleep_checkin(text: str) -> ParsedSleepCheckin | None:
         "note": original,
     }
     return ParsedSleepCheckin(payload=payload)
+
+
+def looks_like_event_batch(text: str) -> bool:
+    return bool(re.search(r";|\n|\bзатем\b", text, flags=re.IGNORECASE))
+
+
+def parse_event_batch(text: str) -> list[ParsedEvent] | None:
+    """Parse 2–20 explicit events separated by semicolons or new lines."""
+
+    if not looks_like_event_batch(text):
+        return None
+    parts = [
+        part.strip()
+        for part in re.split(r"\s*(?:;|\n+|\bзатем\b)\s*", text, flags=re.IGNORECASE)
+        if part.strip()
+    ]
+    if not 2 <= len(parts) <= 20:
+        return None
+    parsed = [parse_event(part) for part in parts]
+    if any(event is None for event in parsed):
+        return None
+    return [event for event in parsed if event is not None]

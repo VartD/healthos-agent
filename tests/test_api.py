@@ -55,6 +55,15 @@ def test_health_data_endpoints_require_api_key(client):
         "/events",
         json={"user_id": "u1", "event_type": "water", "value": 300, "unit": "ml"},
     ).status_code == 401
+    assert client.post(
+        "/events/batch",
+        json={
+            "events": [
+                {"user_id": "u1", "event_type": "water", "value": 300, "unit": "ml"},
+                {"user_id": "u1", "event_type": "food", "note": "овсянка"},
+            ]
+        },
+    ).status_code == 401
 
 
 def test_invalid_api_key_is_rejected(client):
@@ -90,6 +99,58 @@ def test_events_are_filtered_by_user_id(client, auth_headers):
     )
     assert response.status_code == 200
     assert [item["user_id"] for item in response.json()] == ["u1"]
+
+
+def test_event_batch_saves_all_events_together(client, auth_headers):
+    response = client.post(
+        "/events/batch",
+        headers=auth_headers,
+        json={
+            "events": [
+                {"user_id": "u1", "event_type": "water", "value": 300, "unit": "ml"},
+                {"user_id": "u1", "event_type": "food", "note": "овсянка"},
+            ]
+        },
+    )
+    assert response.status_code == 200
+    assert [event["event_type"] for event in response.json()] == ["water", "food"]
+
+    events = client.get(
+        "/events", params={"user_id": "u1"}, headers=auth_headers
+    )
+    assert len(events.json()) == 2
+
+
+def test_event_batch_rejects_everything_if_one_event_is_invalid(client, auth_headers):
+    response = client.post(
+        "/events/batch",
+        headers=auth_headers,
+        json={
+            "events": [
+                {"user_id": "u1", "event_type": "water", "value": 300, "unit": "ml"},
+                {"user_id": "u1", "event_type": "food"},
+            ]
+        },
+    )
+    assert response.status_code == 422
+    events = client.get(
+        "/events", params={"user_id": "u1"}, headers=auth_headers
+    )
+    assert events.json() == []
+
+
+def test_event_batch_cannot_mix_users(client, auth_headers):
+    response = client.post(
+        "/events/batch",
+        headers=auth_headers,
+        json={
+            "events": [
+                {"user_id": "u1", "event_type": "water", "value": 300, "unit": "ml"},
+                {"user_id": "u2", "event_type": "food", "note": "овсянка"},
+            ]
+        },
+    )
+    assert response.status_code == 422
 
 
 def test_negative_water_is_rejected(client, auth_headers):

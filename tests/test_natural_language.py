@@ -1,5 +1,7 @@
 from bot.natural_language import (
     parse_event,
+    parse_event_batch,
+    looks_like_event_batch,
     parse_sleep_checkin,
     parse_uncertain_event,
 )
@@ -58,3 +60,21 @@ def test_parses_complete_natural_sleep_checkin() -> None:
 
 def test_incomplete_natural_sleep_checkin_is_not_parsed() -> None:
     assert parse_sleep_checkin("Спал 7 часов, энергия 3") is None
+
+
+def test_parses_explicit_semicolon_separated_event_batch() -> None:
+    events = parse_event_batch(
+        "Вода 300 мл; давление 128/82, пульс 64; съел овсянку"
+    )
+    assert events is not None
+    assert [event.payload["event_type"] for event in events] == [
+        "water",
+        "blood_pressure",
+        "food",
+    ]
+
+
+def test_batch_is_rejected_if_any_segment_is_ambiguous() -> None:
+    assert looks_like_event_batch("Вода 300 мл; что-то ещё")
+    assert parse_event_batch("Вода 300 мл; что-то ещё") is None
+    assert parse_event_batch("Вода 300 мл") is None

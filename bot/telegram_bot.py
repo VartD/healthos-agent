@@ -36,7 +36,9 @@ if __package__:
     from .aiohttp_request import AiohttpRequest  # noqa: E402
     from .natural_language import (  # noqa: E402
         looks_like_sleep_checkin,
+        looks_like_event_batch,
         parse_event,
+        parse_event_batch,
         parse_sleep_checkin,
         parse_uncertain_event,
     )
@@ -44,7 +46,9 @@ else:
     from aiohttp_request import AiohttpRequest  # noqa: E402
     from natural_language import (  # noqa: E402
         looks_like_sleep_checkin,
+        looks_like_event_batch,
         parse_event,
+        parse_event_batch,
         parse_sleep_checkin,
         parse_uncertain_event,
     )
@@ -72,6 +76,19 @@ async def _post_event(client: httpx.AsyncClient, payload: dict[str, Any]) -> dic
     )
     r.raise_for_status()
     return r.json()
+
+
+async def _post_event_batch(
+    client: httpx.AsyncClient, payloads: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    response = await client.post(
+        f"{BACKEND_URL}/events/batch",
+        json={"events": payloads},
+        headers=_api_headers(),
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 async def _analyze(client: httpx.AsyncClient, user_id: str) -> dict[str, Any]:
@@ -184,7 +201,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Можно писать обычным текстом: «вода 300 мл», «давление 120/80, "
         "пульс 65», «съел овсянку» или «болит голова».\n"
         "Утренний чекин: «спал 7,5 часов, качество 4, просыпался 1 раз, "
-        "энергия 3».\n\n"
+        "энергия 3».\n"
+        "Несколько событий разделяйте точкой с запятой — перед сохранением я "
+        "покажу весь список.\n\n"
         "Команды журнала: /water, /glucose, /uric, /coffee, /food, /workout, "
         "/sauna, /symptom, /status\n"
         "Сон: /profile, /morning, /sleepweek\n\n"
@@ -242,6 +261,26 @@ def _format_event_reply(acknowledgement: str, data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _format_batch_reply(
+    acknowledgements: list[str], data: dict[str, Any]
+) -> str:
+    lines = [f"Записал ✅ Событий: {len(acknowledgements)}."]
+    lines.extend(
+        f"{index}. {acknowledgement}"
+        for index, acknowledgement in enumerate(acknowledgements, start=1)
+    )
+    risks = data.get("risks") or []
+    commands = data.get("commands") or []
+    disclaimer = data.get("disclaimer")
+    if risks:
+        lines.append(f"Главный риск: {risks[0]}.")
+    if commands:
+        lines.append(f"Сейчас: {commands[0]}.")
+    if disclaimer:
+        lines.extend(("", disclaimer))
+    return "\n".join(lines)
+
+
 async def _save_free_text_event(
     update: Update, payload: dict[str, Any], acknowledgement: str
 ) -> None:
@@ -264,6 +303,31 @@ async def _save_free_text_event(
         await message.reply_text("Backend временно недоступен.")  # type: ignore[union-attr]
         return
     await message.reply_text(_format_event_reply(acknowledgement, data))  # type: ignore[union-attr]
+
+
+async def _save_free_text_batch(
+    update: Update,
+    payloads: list[dict[str, Any]],
+    acknowledgements: list[str],
+) -> None:
+    message = update.message
+    uid = _user_id(update)
+    events = [{**payload, "user_id": uid} for payload in payloads]
+    try:
+        async with httpx.AsyncClient(**_HTTPX_BACKEND) as client:
+            await _post_event_batch(client, events)
+            data = await _analyze(client, uid)
+    except httpx.HTTPStatusError as exc:
+        logger.warning("free-text batch rejected: status=%s", exc.response.status_code)
+        await message.reply_text(  # type: ignore[union-attr]
+            "Набор событий отклонён целиком. Ничего не записано; проверьте "
+            "значения и единицы."
+        )
+        return
+    except httpx.HTTPError:
+        await message.reply_text("Backend временно недоступен.")  # type: ignore[union-attr]
+        return
+    await message.reply_text(_format_batch_reply(acknowledgements, data))  # type: ignore[union-attr]
 
 
 async def _save_free_text_sleep(update: Update, payload: dict[str, Any]) -> None:
@@ -296,22 +360,32 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     message = update.message
     text = message.text.strip() if message and message.text else ""
     normalized = text.lower().replace("ё", "е")
-    pending = context.user_data.get("pending_event")
+    pending_key = (
+        "pending_batch"
+        if context.user_data.get("pending_batch")
+        else "pending_event"
+    )
+    pending = context.user_data.get(pending_key)
     if pending and time.time() - pending.get("created_at", 0) > PENDING_EVENT_TTL_SECONDS:
-        context.user_data.pop("pending_event", None)
+        context.user_data.pop(pending_key, None)
         pending = None
     if pending and normalized in {"да", "сохранить", "верно"}:
-        context.user_data.pop("pending_event", None)
-        await _save_free_text_event(
-            update, pending["payload"], pending["acknowledgement"]
-        )
+        context.user_data.pop(pending_key, None)
+        if pending_key == "pending_batch":
+            await _save_free_text_batch(
+                update, pending["payloads"], pending["acknowledgements"]
+            )
+        else:
+            await _save_free_text_event(
+                update, pending["payload"], pending["acknowledgement"]
+            )
         return
     if pending and normalized in {"нет", "отмена", "неверно"}:
-        context.user_data.pop("pending_event", None)
+        context.user_data.pop(pending_key, None)
         await message.reply_text("Отменил. Ничего не записано.")  # type: ignore[union-attr]
         return
     if pending:
-        context.user_data.pop("pending_event", None)
+        context.user_data.pop(pending_key, None)
 
     sleep = parse_sleep_checkin(text)
     if sleep is not None:
@@ -321,6 +395,30 @@ async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await message.reply_text(  # type: ignore[union-attr]
             "Для утреннего чекина нужны четыре значения. Например: «Спал 7,5 "
             "часов, качество 4, просыпался 1 раз, энергия 3». Ничего не записал."
+        )
+        return
+
+    batch = parse_event_batch(text)
+    if batch is not None:
+        acknowledgements = [event.acknowledgement for event in batch]
+        context.user_data["pending_batch"] = {
+            "payloads": [dict(event.payload) for event in batch],
+            "acknowledgements": acknowledgements,
+            "created_at": time.time(),
+        }
+        preview = "\n".join(
+            f"{index}. {acknowledgement}"
+            for index, acknowledgement in enumerate(acknowledgements, start=1)
+        )
+        await message.reply_text(  # type: ignore[union-attr]
+            f"Проверьте события:\n{preview}\nСохранить всё? Ответьте «да» или «нет». "
+            "Пока ничего не записал."
+        )
+        return
+    if looks_like_event_batch(text):
+        await message.reply_text(  # type: ignore[union-attr]
+            "Не распознал все части сообщения, поэтому ничего не записал. "
+            "Разделите события точкой с запятой и укажите числа с единицами."
         )
         return
 

@@ -212,3 +212,49 @@ def test_incomplete_natural_sleep_checkin_is_not_saved(client, monkeypatch):
         headers={"X-API-Key": "test-healthos-api-key-that-is-long-enough"},
     )
     assert events.json() == []
+
+
+def test_event_batch_previews_then_saves_atomically(client, monkeypatch):
+    route_bot_http_to_backend(monkeypatch)
+    context = FakeContext(args=[])
+    update = FakeUpdate(
+        message=FakeMessage(text="Вода 300 мл; давление 128/82, пульс 64")
+    )
+
+    asyncio.run(telegram_bot.handle_free_text(update, context))
+    assert "Проверьте события" in update.message.replies[0]
+    assert "1. Вода: 300 мл" in update.message.replies[0]
+    assert "2. Давление 128/82, пульс 64" in update.message.replies[0]
+
+    before = client.get(
+        "/events",
+        params={"user_id": str(update.effective_chat.id)},
+        headers={"X-API-Key": "test-healthos-api-key-that-is-long-enough"},
+    )
+    assert before.json() == []
+
+    update.message.text = "да"
+    asyncio.run(telegram_bot.handle_free_text(update, context))
+    assert update.message.replies[-1].startswith("Записал ✅ Событий: 2.")
+
+    after = client.get(
+        "/events",
+        params={"user_id": str(update.effective_chat.id)},
+        headers={"X-API-Key": "test-healthos-api-key-that-is-long-enough"},
+    )
+    assert len(after.json()) == 2
+
+
+def test_ambiguous_batch_is_never_partially_saved(client, monkeypatch):
+    route_bot_http_to_backend(monkeypatch)
+    update = FakeUpdate(message=FakeMessage(text="Вода 300 мл; что-то ещё"))
+
+    asyncio.run(telegram_bot.handle_free_text(update, FakeContext(args=[])))
+
+    assert "ничего не записал" in update.message.replies[0]
+    events = client.get(
+        "/events",
+        params={"user_id": str(update.effective_chat.id)},
+        headers={"X-API-Key": "test-healthos-api-key-that-is-long-enough"},
+    )
+    assert events.json() == []
