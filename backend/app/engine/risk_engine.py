@@ -71,6 +71,25 @@ def _latest_uric_today(events: list[EventView], today: date) -> float | None:
     return float(max(values, key=lambda e: e.timestamp).value) if values else None
 
 
+def _latest_blood_pressure_today(
+    events: list[EventView], today: date
+) -> tuple[float, float] | None:
+    values = [
+        e
+        for e in _today_events(events, today)
+        if e.event_type == EventType.blood_pressure and e.value is not None
+    ]
+    if not values:
+        return None
+    latest = max(values, key=lambda e: e.timestamp)
+    metadata = latest.metadata or {}
+    systolic = float(metadata.get("systolic", latest.value))
+    diastolic = metadata.get("diastolic")
+    if not isinstance(diastolic, (int, float)):
+        return None
+    return systolic, float(diastolic)
+
+
 def _sleep_hours_recent(events: list[EventView], today: date) -> float | None:
     sleeps = sorted(
         [e for e in events if e.event_type == EventType.sleep and e.value is not None],
@@ -152,6 +171,12 @@ def detect_risks(events: list[EventView], *, today: date | None = None) -> list[
 
     if uric is not None and uric > 360:
         risks.append("uric_high")
+
+    blood_pressure = _latest_blood_pressure_today(events, today)
+    if blood_pressure is not None:
+        systolic, diastolic = blood_pressure
+        if systolic >= 180 or diastolic >= 120:
+            risks.append("blood_pressure_critical")
 
     if coffee_after_16_moscow:
         risks.append("coffee_late")

@@ -35,6 +35,7 @@ RISK_LABEL_RU: dict[str, str] = {
     "uric_high": "Мочевая кислота выше 360",
     "coffee_late": "Кофе после 16:00",
     "coffee_water_compensation": "Недостаточно воды относительно объёма кофе",
+    "blood_pressure_critical": "Давление ≥180 и/или ≥120 мм рт. ст.",
 }
 
 
@@ -64,7 +65,7 @@ SEVERE_SYMPTOM_MARKERS = (
 def _severe_symptom(events: list[HealthEvent], *, window_hours: int = 24) -> bool:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
     for r in events:
-        if r.event_type != EventType.symptom or not r.note:
+        if r.event_type not in {EventType.symptom, EventType.blood_pressure} or not r.note:
             continue
         timestamp = r.timestamp
         if timestamp.tzinfo is None:
@@ -97,7 +98,21 @@ def analyze_user(db: Session, user_id: str, *, limit_events: int = 500) -> Analy
     commands = build_commands(mode, risk_codes)
 
     disclaimer: str | None = None
-    if _severe_symptom(rows):
+    severe_symptom = _severe_symptom(rows)
+    critical_pressure = "blood_pressure_critical" in risk_codes
+    if critical_pressure and severe_symptom:
+        disclaimer = (
+            "Давление ≥180/120 вместе с болью в груди, одышкой, слабостью, "
+            "онемением, нарушением зрения или речи может требовать экстренной помощи. "
+            "Позвоните 112. Не меняйте лекарства самостоятельно."
+        )
+    elif critical_pressure:
+        disclaimer = (
+            "Подождите не менее 1 минуты и измерьте давление повторно. Если оно "
+            "остаётся ≥180/120, срочно свяжитесь с врачом; при новых тревожных "
+            "симптомах позвоните 112. Не меняйте лекарства самостоятельно."
+        )
+    elif severe_symptom:
         disclaimer = (
             "При тяжёлых симптомах не откладывайте обращение к врачу или скорой помощи. "
             "Это не диагноз и не замена очной консультации."

@@ -209,3 +209,48 @@ def test_old_severe_symptom_does_not_trigger_permanent_alert(client, auth_header
     )
     assert response.status_code == 200
     assert response.json()["disclaimer"] is None
+
+
+def test_critical_blood_pressure_has_deterministic_safety_response(
+    client, auth_headers
+):
+    created = client.post(
+        "/events",
+        headers=auth_headers,
+        json={
+            "user_id": "u1",
+            "event_type": "blood_pressure",
+            "value": 185,
+            "unit": "mmHg",
+            "note": "Давление 185/122",
+            "metadata": {"systolic": 185, "diastolic": 122},
+        },
+    )
+    assert created.status_code == 200
+
+    response = client.get(
+        "/analyze", params={"user_id": "u1"}, headers=auth_headers
+    )
+    data = response.json()
+    assert "Давление ≥180 и/или ≥120 мм рт. ст." in data["risks"]
+    assert data["commands"][0] == "подождите 1 минуту и повторно измерьте давление"
+    assert "срочно свяжитесь с врачом" in data["disclaimer"]
+
+
+def test_critical_pressure_with_chest_pain_says_call_112(client, auth_headers):
+    client.post(
+        "/events",
+        headers=auth_headers,
+        json={
+            "user_id": "u1",
+            "event_type": "blood_pressure",
+            "value": 190,
+            "unit": "mmHg",
+            "note": "Давление 190/125 и боль в груди",
+            "metadata": {"systolic": 190, "diastolic": 125},
+        },
+    )
+    response = client.get(
+        "/analyze", params={"user_id": "u1"}, headers=auth_headers
+    )
+    assert "Позвоните 112" in response.json()["disclaimer"]

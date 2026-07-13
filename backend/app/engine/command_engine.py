@@ -7,6 +7,9 @@ def build_commands(mode: Mode, risk_codes: list[str]) -> list[str]:
     codes = set(risk_codes)
 
     risk_cmds: list[str] = []
+    if "blood_pressure_critical" in codes:
+        risk_cmds.append("подождите 1 минуту и повторно измерьте давление")
+        risk_cmds.append("при тревожных симптомах звоните 112")
     if "кофе + недостаточная компенсация водой" in codes:
         risk_cmds.append("вода 400–600 мл в течение 30–60 мин")
     if "кофе поздно вечером" in codes:

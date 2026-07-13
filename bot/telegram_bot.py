@@ -23,12 +23,20 @@ for _key in (
     os.environ.pop(_key, None)
 
 from telegram import Update  # noqa: E402
-from telegram.ext import Application, CommandHandler, ContextTypes  # noqa: E402
+from telegram.ext import (  # noqa: E402
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 if __package__:
     from .aiohttp_request import AiohttpRequest  # noqa: E402
+    from .natural_language import parse_event  # noqa: E402
 else:
     from aiohttp_request import AiohttpRequest  # noqa: E402
+    from natural_language import parse_event  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -161,6 +169,8 @@ def _user_id(update: Update) -> str:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "HealthOS — журнал событий и мягкие операционные подсказки.\n\n"
+        "Можно писать обычным текстом: «вода 300 мл», «давление 120/80, "
+        "пульс 65», «съел овсянку» или «болит голова».\n\n"
         "Команды журнала: /water, /glucose, /uric, /coffee, /food, /workout, "
         "/sauna, /symptom, /status\n"
         "Сон: /profile, /morning, /sleepweek\n\n"
@@ -202,6 +212,52 @@ async def _log_and_reply(update: Update, payload: dict[str, Any]) -> None:
         )
         return
     await update.message.reply_text(_format_digest(data))  # type: ignore[union-attr]
+
+
+def _format_event_reply(acknowledgement: str, data: dict[str, Any]) -> str:
+    risks = data.get("risks") or []
+    commands = data.get("commands") or []
+    disclaimer = data.get("disclaimer")
+    lines = [f"Записал ✅ {acknowledgement}."]
+    if risks:
+        lines.append(f"Главный риск: {risks[0]}.")
+    if commands:
+        lines.append(f"Сейчас: {commands[0]}.")
+    if disclaimer:
+        lines.extend(("", disclaimer))
+    return "\n".join(lines)
+
+
+async def handle_free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    text = message.text.strip() if message and message.text else ""
+    parsed = parse_event(text)
+    if parsed is None:
+        await message.reply_text(  # type: ignore[union-attr]
+            "Не уверен, что правильно понял, поэтому ничего не записал. "
+            "Напишите явно, например: «вода 300 мл», «давление 120/80, "
+            "пульс 65» или «съел овсянку». Команды тоже продолжают работать."
+        )
+        return
+
+    payload = dict(parsed.payload)
+    uid = _user_id(update)
+    payload["user_id"] = uid
+    try:
+        async with httpx.AsyncClient(**_HTTPX_BACKEND) as client:
+            await _post_event(client, payload)
+            data = await _analyze(client, uid)
+    except httpx.HTTPStatusError as exc:
+        logger.warning("free-text event rejected: status=%s", exc.response.status_code)
+        await message.reply_text(  # type: ignore[union-attr]
+            "Не смог сохранить: значение выглядит неполным или недопустимым. "
+            "Проверьте число и единицы."
+        )
+        return
+    except httpx.HTTPError:
+        await message.reply_text("Backend временно недоступен.")  # type: ignore[union-attr]
+        return
+    await message.reply_text(_format_event_reply(parsed.acknowledgement, data))  # type: ignore[union-attr]
 
 
 async def _parse_float(update: Update, context: ContextTypes.DEFAULT_TYPE, example: str) -> float | None:
@@ -426,6 +482,7 @@ def main() -> None:
     app.add_handler(CommandHandler("profile", cmd_profile))
     app.add_handler(CommandHandler("morning", cmd_morning))
     app.add_handler(CommandHandler("sleepweek", cmd_sleepweek))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text))
     logger.info("Bot polling… backend=%s", BACKEND_URL)
     app.run_polling()
 
